@@ -172,7 +172,7 @@ with tab1:
                         location=selected_loc,
                         observed_at=input_time,
                         wbgt=input_wbgt,
-                        temperature=input_ta,
+                        ta=input_ta,
                         humidity=input_rh,
                         judgment=judgment,
                         image_filename=filename,
