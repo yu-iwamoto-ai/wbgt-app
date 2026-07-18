@@ -3,11 +3,12 @@ import streamlit as st
 import os
 import pandas as pd
 from datetime import datetime, date
+from PIL import Image, ImageOps
 
 # ページの設定
 st.set_page_config(page_title="校内WBGT観測システム", page_icon="🌡️", layout="centered")
 
-# フォルダとご指定の5地点の設定
+# フォルダとご指定 of 5地点の設定
 IMAGE_DIR = "saved_images"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 LOCATIONS = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
@@ -31,7 +32,7 @@ st.caption("手入力 ＋ 写真保存版（サクサク動作モード）")
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
 
 # ==========================================
-# タブ1: 新規登録
+# タブ1: 新規登録（写真を縦向きに自動修正する機能を追加）
 # ==========================================
 with tab1:
     st.header("1. 測定値と日時の入力")
@@ -74,8 +75,19 @@ with tab1:
         if uploaded_file is not None:
             time_for_file = time_part.replace(":", "")
             img_name = f"{input_date.strftime('%Y%m%d')}_{time_for_file}_{location}.jpg"
-            with open(os.path.join(IMAGE_DIR, img_name), "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            
+            # --- 【新機能】スマホ写真の「横向き寝ちゃう問題」を解決する回転補正 ---
+            try:
+                image = Image.open(uploaded_file)
+                # スマホ固有の回転情報(EXIF)を読み取って、正しい縦向きに物理回転させる
+                image = ImageOps.exif_transpose(image)
+                
+                # 正しい向きになった画像を保存
+                image.save(os.path.join(IMAGE_DIR, img_name), "JPEG", quality=85)
+            except Exception as e:
+                # 万が一エラーが出た場合はそのまま保存する安全策
+                with open(os.path.join(IMAGE_DIR, img_name), "wb") as f:
+                    f.write(uploaded_file.getbuffer())
         
         new_data = pd.DataFrame([[selected_datetime_str, location, wbgt, ta, rh, judgment, img_name]], 
                                 columns=["日時", "地点", "WBGT", "気温", "湿度", "判定", "画像"])
@@ -85,7 +97,7 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# タブ2: 地点別最新一覧（写真表示を追加！）
+# タブ2: 地点別最新一覧
 # ==========================================
 with tab2:
     st.header("📋 校内各地点の最新状況")
@@ -104,7 +116,6 @@ with tab2:
                 
                 _, color = judge_wbgt(wbgt_val)
                 
-                # 写真が存在するかチェック
                 has_image = False
                 img_path = ""
                 if pd.notna(img_file) and img_file != "-":
@@ -112,9 +123,8 @@ with tab2:
                     if os.path.exists(img_path):
                         has_image = True
                 
-                # 2つの列に分けて、右側に写真を配置できるようにします
                 if has_image:
-                    col_text, col_img = st.columns([4, 1])
+                    col_text, col_img = st.columns([3.8, 1.2]) # スマホで見やすいよう写真幅を少しだけ微調整
                 else:
                     col_text = st.container()
                 
@@ -137,7 +147,6 @@ with tab2:
                         unsafe_allow_html=True
                     )
                 
-                # 写真がある場合のみ、右側にサムネイルを、その下に拡大ボタンを設置
                 if has_image:
                     with col_img:
                         st.image(img_path, use_container_width=True)
