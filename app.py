@@ -13,23 +13,19 @@ IMAGE_DIR = "saved_images"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 LOCATIONS = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
 
-# ==========================================
-# 🔥 【超重要】24時間（86400秒）データを絶対に消さないメモリ空間を作成！
-# ==========================================
+# 🔥 24時間（86400秒）データを保持するメモリ空間
 @st.cache_resource(ttl=86400)
 def get_secure_database():
-    # サーバーが再起動しても、24時間はここにあるデータが最優先で保持されます
     return {"df": pd.DataFrame(columns=["日時", "地点", "WBGT", "気温", "湿度", "判定", "画像"])}
 
 db_container = get_secure_database()
 
-# ファイルとしても念のため保存
+# ファイルとしてのバックアップ準備
 DB_FILE = "wbgt_data.csv"
 if not os.path.exists(DB_FILE):
     df_init = pd.DataFrame(columns=["日時", "地点", "WBGT", "気温", "湿度", "判定", "画像"])
     df_init.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
 else:
-    # サーバー起動時にファイルが残っていればキャッシュに同期
     try:
         file_df = pd.read_csv(DB_FILE, encoding="utf-8-sig")
         if not file_df.empty and db_container["df"].empty:
@@ -37,7 +33,7 @@ else:
     except:
         pass
 
-# 熱中症判定のルールと色設定
+# 🔥 【重要】熱中症判定のルール（33℃以上の紫を追加した5段階）
 def judge_wbgt(val):
     if val >= 33: return "🟣 危険（熱中症警戒アラート）", "#800080"
     elif val >= 31: return "🔴 危険", "#FF4B4B"
@@ -46,7 +42,7 @@ def judge_wbgt(val):
     else: return "🔹 注意", "#3498DB"
 
 st.title("🌡️ 校内WBGT観測システム")
-st.caption("手入力 ＋ 写真保存版（24時間データ保護モード）")
+st.caption("手入力 ＋ 写真保存版（熱中症警戒アラート対応モード）")
 
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
 
@@ -103,14 +99,10 @@ with tab1:
                 with open(os.path.join(IMAGE_DIR, img_name), "wb") as f:
                     f.write(uploaded_file.getbuffer())
         
-        # 新しい行の作成
         new_row = pd.DataFrame([[selected_datetime_str, location, wbgt, ta, rh, judgment, img_name]], 
                                columns=["日時", "地点", "WBGT", "気温", "湿度", "判定", "画像"])
         
-        # 🔥 キャッシュ（消えないメモリ）に保存
         db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
-        
-        # バックアップとしてCSVにも保存
         db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
         
         st.success(f"【登録完了】 {location} のデータを保存しました！")
