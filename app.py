@@ -39,7 +39,8 @@ else:
 
 # 熱中症判定のルールと色設定
 def judge_wbgt(val):
-    if val >= 31: return "🔴 危険", "#FF4B4B"
+    if val >= 33: return "🟣 危険（熱中症警戒アラート）", "#800080"
+    elif val >= 31: return "🔴 危険", "#FF4B4B"
     elif val >= 28: return "🔶 厳重警戒", "#FFA500"
     elif val >= 25: return "💛 警戒", "#F1C40F"
     else: return "🔹 注意", "#3498DB"
