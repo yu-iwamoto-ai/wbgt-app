@@ -31,7 +31,7 @@ st.caption("手入力 ＋ 写真保存版（サクサク動作モード）")
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
 
 # ==========================================
-# タブ1: 新規登録（時刻を文字で打ち込めるように変更！）
+# タブ1: 新規登録
 # ==========================================
 with tab1:
     st.header("1. 測定値と日時の入力")
@@ -42,16 +42,13 @@ with tab1:
     with c_date:
         input_date = st.date_input("観測日を選択", date.today())
     with c_time:
-        # 現在の時刻（例: 15:30）を最初から文字として入れておきます
         now_time_str = datetime.now().strftime("%H:%M")
         input_time_str = st.text_input("観測時刻（直接入力用）", value=now_time_str, help="例: 15:30")
     
-    # 選択された日付と、打ち込まれた時刻の文字を合体させます
-    # もし秒数が省略されても大丈夫なように「:00」を後ろに補います
     time_part = input_time_str.strip()
-    if len(time_part) == 5:  # 「15:30」の形式なら秒を足す
+    if len(time_part) == 5:
         time_part += ":00"
-    elif len(time_part) == 4 and ":" in time_part: # 「9:30」などの対策
+    elif len(time_part) == 4 and ":" in time_part:
         time_part = "0" + time_part + ":00"
         
     selected_datetime_str = f"{input_date} {time_part}"
@@ -65,9 +62,7 @@ with tab1:
     uploaded_file = st.file_uploader("証拠写真をアップロード（任意）", type=["jpg", "jpeg", "png"])
     
     if st.button("この内容で登録する", type="primary"):
-        # 時刻の形式が正しいか簡易チェック（エラーで落ちないための安全対策）
         try:
-            # 試しに日時に変換できるかチェック
             datetime.strptime(selected_datetime_str, "%Y-%m-%d %H:%M:%S")
         except ValueError:
             st.error("時刻の入力形式が正しくありません。「15:30」のように半角のコロンで区切って入力してください。")
@@ -90,7 +85,7 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# タブ2: 地点別最新一覧
+# タブ2: 地点別最新一覧（写真表示を追加！）
 # ==========================================
 with tab2:
     st.header("📋 校内各地点の最新状況")
@@ -101,14 +96,29 @@ with tab2:
         for loc in LOCATIONS:
             loc_df = df[df["地点"] == loc]
             
-            with st.container():
-                if not loc_df.empty:
-                    latest_row = loc_df.iloc[-1]
-                    judgment_text = latest_row["判定"]
-                    wbgt_val = latest_row["WBGT"]
-                    
-                    _, color = judge_wbgt(wbgt_val)
-                    
+            if not loc_df.empty:
+                latest_row = loc_df.iloc[-1]
+                judgment_text = latest_row["判定"]
+                wbgt_val = latest_row["WBGT"]
+                img_file = latest_row["画像"]
+                
+                _, color = judge_wbgt(wbgt_val)
+                
+                # 写真が存在するかチェック
+                has_image = False
+                img_path = ""
+                if pd.notna(img_file) and img_file != "-":
+                    img_path = os.path.join(IMAGE_DIR, img_file)
+                    if os.path.exists(img_path):
+                        has_image = True
+                
+                # 2つの列に分けて、右側に写真を配置できるようにします
+                if has_image:
+                    col_text, col_img = st.columns([4, 1])
+                else:
+                    col_text = st.container()
+                
+                with col_text:
                     st.markdown(
                         f"""
                         <div style="border-left: 6px solid {color}; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
@@ -126,18 +136,25 @@ with tab2:
                         """,
                         unsafe_allow_html=True
                     )
-                else:
-                    st.markdown(
-                        """
-                        <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
-                                <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
-                            </div>
+                
+                # 写真がある場合のみ、右側にサムネイルを、その下に拡大ボタンを設置
+                if has_image:
+                    with col_img:
+                        st.image(img_path, use_container_width=True)
+                        with st.popover("🔎 拡大", use_container_width=True):
+                            st.image(img_path, caption=f"{loc} の証拠写真")
+            else:
+                st.markdown(
+                    """
+                    <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
+                            <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
                         </div>
-                        """.format(loc=loc),
-                        unsafe_allow_html=True
-                    )
+                    </div>
+                    """.format(loc=loc),
+                    unsafe_allow_html=True
+                )
 
 # ==========================================
 # タブ3: 全履歴（CSV）
