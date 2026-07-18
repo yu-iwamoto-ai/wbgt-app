@@ -8,7 +8,7 @@ from PIL import Image, ImageOps
 # ページの設定
 st.set_page_config(page_title="校内WBGT観測システム", page_icon="🌡️", layout="centered")
 
-# フォルダとご指定 of 5地点の設定
+# フォルダと5地点の設定
 IMAGE_DIR = "saved_images"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 LOCATIONS = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
@@ -27,12 +27,12 @@ def judge_wbgt(val):
     else: return "🔹 注意", "#3498DB"
 
 st.title("🌡️ 校内WBGT観測システム")
-st.caption("手入力 ＋ 写真保存版（サクサク動作モード）")
+st.caption("手入力 ＋ 写真保存版（オンデマンド表示モード）")
 
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
 
 # ==========================================
-# タブ1: 新規登録（写真を縦向きに自動修正する機能を追加）
+# タブ1: 新規登録（写真のアップロード欄を復活）
 # ==========================================
 with tab1:
     st.header("1. 測定値と日時の入力")
@@ -60,6 +60,7 @@ with tab1:
     ta = st.number_input("気温 (℃)", value=30.0, step=0.1, format="%.1f")
     rh = st.number_input("湿度 (%)", value=60.0, step=0.1, format="%.1f")
     
+    # 写真の添付（保存されるよう復活させました）
     uploaded_file = st.file_uploader("証拠写真をアップロード（任意）", type=["jpg", "jpeg", "png"])
     
     if st.button("この内容で登録する", type="primary"):
@@ -76,16 +77,12 @@ with tab1:
             time_for_file = time_part.replace(":", "")
             img_name = f"{input_date.strftime('%Y%m%d')}_{time_for_file}_{location}.jpg"
             
-            # --- 【新機能】スマホ写真の「横向き寝ちゃう問題」を解決する回転補正 ---
             try:
+                # 縦向きに自動補正してサーバー内に保存
                 image = Image.open(uploaded_file)
-                # スマホ固有の回転情報(EXIF)を読み取って、正しい縦向きに物理回転させる
                 image = ImageOps.exif_transpose(image)
-                
-                # 正しい向きになった画像を保存
                 image.save(os.path.join(IMAGE_DIR, img_name), "JPEG", quality=85)
             except Exception as e:
-                # 万が一エラーが出た場合はそのまま保存する安全策
                 with open(os.path.join(IMAGE_DIR, img_name), "wb") as f:
                     f.write(uploaded_file.getbuffer())
         
@@ -97,7 +94,7 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# タブ2: 地点別最新一覧
+# タブ2: 地点別最新一覧（ボタンを押した時だけ写真を表示！）
 # ==========================================
 with tab2:
     st.header("📋 校内各地点の最新状況")
@@ -108,30 +105,20 @@ with tab2:
         for loc in LOCATIONS:
             loc_df = df[df["地点"] == loc]
             
-            if not loc_df.empty:
-                latest_row = loc_df.iloc[-1]
-                judgment_text = latest_row["判定"]
-                wbgt_val = latest_row["WBGT"]
-                img_file = latest_row["画像"]
-                
-                _, color = judge_wbgt(wbgt_val)
-                
-                has_image = False
-                img_path = ""
-                if pd.notna(img_file) and img_file != "-":
-                    img_path = os.path.join(IMAGE_DIR, img_file)
-                    if os.path.exists(img_path):
-                        has_image = True
-                
-                if has_image:
-                    col_text, col_img = st.columns([3.8, 1.2]) # スマホで見やすいよう写真幅を少しだけ微調整
-                else:
-                    col_text = st.container()
-                
-                with col_text:
+            with st.container():
+                if not loc_df.empty:
+                    latest_row = loc_df.iloc[-1]
+                    judgment_text = latest_row["判定"]
+                    wbgt_val = latest_row["WBGT"]
+                    # 過去のデータに「画像」列がない場合の安全対策
+                    img_file = latest_row["画像"] if "画像" in latest_row else "-"
+                    
+                    _, color = judge_wbgt(wbgt_val)
+                    
+                    # 文字ベースのカードは横幅いっぱいにすっきり表示
                     st.markdown(
                         f"""
-                        <div style="border-left: 6px solid {color}; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
+                        <div style="border-left: 6px solid {color}; padding: 6px 12px; margin-bottom: 4px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <span style="font-size: 1rem; font-weight: bold; color: #333;">📍 {loc}</span>
                                 <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">{judgment_text}</span>
@@ -146,24 +133,29 @@ with tab2:
                         """,
                         unsafe_allow_html=True
                     )
-                
-                if has_image:
-                    with col_img:
-                        st.image(img_path, use_container_width=True)
-                        with st.popover("🔎 拡大", use_container_width=True):
-                            st.image(img_path, caption=f"{loc} の証拠写真")
-            else:
-                st.markdown(
-                    """
-                    <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
-                            <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
+                    
+                    # 写真が存在する場合のみ、カードのすぐ下に折りたたみボタンを配置
+                    if pd.notna(img_file) and img_file != "-":
+                        img_path = os.path.join(IMAGE_DIR, img_file)
+                        if os.path.exists(img_path):
+                            # ここを押すとパッと写真が開きます
+                            with st.expander("📸 証拠写真を表示"):
+                                st.image(img_path, caption=f"{loc} の測定写真（縦向き補正済）", use_container_width=True)
+                    
+                    # 各地点の間に少しだけ隙間をあける
+                    st.write("")
+                else:
+                    st.markdown(
+                        """
+                        <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 12px; background-color: #f8f9fa; border-radius: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
+                                <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
+                            </div>
                         </div>
-                    </div>
-                    """.format(loc=loc),
-                    unsafe_allow_html=True
-                )
+                        """.format(loc=loc),
+                        unsafe_allow_html=True
+                    )
 
 # ==========================================
 # タブ3: 全履歴（CSV）
