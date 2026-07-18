@@ -31,7 +31,7 @@ st.caption("手入力 ＋ 写真保存版（サクサク動作モード）")
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
 
 # ==========================================
-# タブ1: 新規登録
+# タブ1: 新規登録（時刻を文字で打ち込めるように変更！）
 # ==========================================
 with tab1:
     st.header("1. 測定値と日時の入力")
@@ -42,10 +42,19 @@ with tab1:
     with c_date:
         input_date = st.date_input("観測日を選択", date.today())
     with c_time:
-        current_time = datetime.now().time()
-        input_time = st.time_input("観測時刻を選択", value=current_time)
+        # 現在の時刻（例: 15:30）を最初から文字として入れておきます
+        now_time_str = datetime.now().strftime("%H:%M")
+        input_time_str = st.text_input("観測時刻（直接入力用）", value=now_time_str, help="例: 15:30")
     
-    selected_datetime_str = datetime.combine(input_date, input_time).strftime("%Y-%m-%d %H:%M:%S")
+    # 選択された日付と、打ち込まれた時刻の文字を合体させます
+    # もし秒数が省略されても大丈夫なように「:00」を後ろに補います
+    time_part = input_time_str.strip()
+    if len(time_part) == 5:  # 「15:30」の形式なら秒を足す
+        time_part += ":00"
+    elif len(time_part) == 4 and ":" in time_part: # 「9:30」などの対策
+        time_part = "0" + time_part + ":00"
+        
+    selected_datetime_str = f"{input_date} {time_part}"
     
     st.write("---")
     
@@ -56,12 +65,20 @@ with tab1:
     uploaded_file = st.file_uploader("証拠写真をアップロード（任意）", type=["jpg", "jpeg", "png"])
     
     if st.button("この内容で登録する", type="primary"):
+        # 時刻の形式が正しいか簡易チェック（エラーで落ちないための安全対策）
+        try:
+            # 試しに日時に変換できるかチェック
+            datetime.strptime(selected_datetime_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            st.error("時刻の入力形式が正しくありません。「15:30」のように半角のコロンで区切って入力してください。")
+            st.stop()
+
         judgment, _ = judge_wbgt(wbgt)
         img_name = "-"
         
         if uploaded_file is not None:
-            time_for_file = datetime.combine(input_date, input_time).strftime("%Y%m%d_%H%M%S")
-            img_name = f"{time_for_file}_{location}.jpg"
+            time_for_file = time_part.replace(":", "")
+            img_name = f"{input_date.strftime('%Y%m%d')}_{time_for_file}_{location}.jpg"
             with open(os.path.join(IMAGE_DIR, img_name), "wb") as f:
                 f.write(uploaded_file.getbuffer())
         
@@ -73,7 +90,7 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# タブ2: 地点別最新一覧（スマホ向けにギュッと小さくスリム化！）
+# タブ2: 地点別最新一覧
 # ==========================================
 with tab2:
     st.header("📋 校内各地点の最新状況")
@@ -92,7 +109,6 @@ with tab2:
                     
                     _, color = judge_wbgt(wbgt_val)
                     
-                    # 文字サイズ（font-size）と上下の隙間（padding, margin）を小さくしました
                     st.markdown(
                         f"""
                         <div style="border-left: 6px solid {color}; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
@@ -104,7 +120,7 @@ with tab2:
                                 <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold;">{wbgt_val:.1f}℃</span></span>
                                 <span><b>気温:</b> {latest_row['気温']:.1f}℃</span>
                                 <span><b>湿度:</b> {latest_row['湿度']:.1f}%</span>
-                                <span style="font-size: 0.75rem; color: #888; margin-left: auto;">🕒{latest_row['日時'][11:16]}</span>
+                                <span style="font-size: 0.75rem; color: #888; margin-left: auto;">🕒 {latest_row['日時'][11:16]}</span>
                             </div>
                         </div>
                         """,
