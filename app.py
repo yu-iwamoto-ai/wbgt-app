@@ -71,33 +71,38 @@ else:
 
 db_container["df"] = ensure_columns(db_container["df"])
 
-# 熱中症警戒アラートの自動取得関数（強固版）
-@st.cache_data(ttl=1800) # 30分キャッシュ
-def check_heat_alert_status(pref_name):
+# 熱中症警戒アラートの自動取得関数（確実取得版）
+def fetch_heat_alert(pref_name):
     clean_pref = pref_name.replace("県", "").replace("府", "").replace("都", "")
     
-    # 環境省 / 気象庁アラートデータ取得（マルチフォールバック）
+    # 配信元URL
     urls = [
         "https://www.wbgt.env.go.jp/sp/data/xml/alert_info.xml",
         "https://www.wbgt.env.go.jp/prev157/data/alert_info.xml"
     ]
     
-    status_msg = "取得未実行"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    status_msg = "取得失敗"
     is_alert = False
     
     for url in urls:
         try:
-            res = requests.get(url, timeout=4)
+            res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
                 content = res.text
                 if clean_pref in content or pref_name in content:
                     is_alert = True
-                    status_msg = f"【発令中】データ内に{pref_name}を確認しました"
+                    status_msg = f"【発令中】データ内に「{pref_name}」の発表を確認しました"
                 else:
-                    status_msg = f"【正常通信】現在{pref_name}に発令データはありません"
+                    status_msg = f"【正常通信】データ内に「{pref_name}」の該当なし"
                 break
+            else:
+                status_msg = f"HTTPエラー: {res.status_code}"
         except Exception as e:
-            status_msg = f"通信エラー: {e}"
+            status_msg = f"通信例外: {e}"
             
     return is_alert, status_msg
 
@@ -135,18 +140,17 @@ def show_image_modal(image_path, title="写真"):
 st.sidebar.header("⚙️ システム設定")
 selected_pref = st.sidebar.selectbox("学校の所在地域", PREFECTURES, index=PREFECTURES.index("兵庫県") if "兵庫県" in PREFECTURES else 0)
 
-# 自動取得処理実行
-auto_alert, alert_debug_msg = check_heat_alert_status(selected_pref)
+# アプリ起動時に必ず最新データを直接通信して取得
+auto_alert, alert_debug_msg = fetch_heat_alert(selected_pref)
 
-# サイドバーに自動取得の診断結果を表示（デバッグ・安心用）
-with st.sidebar.expander("📡 アラート自動取得の接続状態", expanded=False):
-    st.caption(f"判定結果: **{'⚠️ 発令あり' if auto_alert else '🟢 発令なし/平常'}**")
-    st.caption(f"詳細情報: {alert_debug_msg}")
-    if st.button("最新状態に更新（再取得）"):
-        st.cache_data.clear()
+# サイドバーに自動取得の診断結果を表示
+with st.sidebar.expander("📡 アラート自動取得の接続状態", expanded=True):
+    st.write(f"判定: **{'⚠️ 発令中' if auto_alert else '🟢 発令なし/平常'}**")
+    st.caption(f"通信状況: {alert_debug_msg}")
+    if st.button("最新データに再更新"):
         st.rerun()
 
-# 手動強制表示スイッチ（テスト・緊急時用）
+# 手動強制表示スイッチ（テスト・緊急用）
 manual_alert = st.sidebar.checkbox("熱中症警戒アラートをテスト表示（強制表示）", value=False)
 
 is_alert_active = auto_alert or manual_alert
@@ -418,7 +422,9 @@ with tab2:
                         unsafe_allow_html=True
                     )
 
-    # --- サブタブ2: 天候・表面温度最新一覧 ---
+# ==========================================
+# タブ2: 天候・表面温度最新一覧
+# ==========================================
     with view_tab_b:
         st.subheader("校内天候・地面表面温度の最新情報")
         for idx, loc in enumerate(LOCATIONS_ENV):
