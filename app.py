@@ -16,6 +16,9 @@ os.makedirs(IMAGE_DIR, exist_ok=True)
 LOCATIONS_WBGT = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
 LOCATIONS_ENV = ["校内全体（全地点共通）", "正門付近", "東門付近", "グラウンド", "南館屋上", "建学の庭付近"]
 
+# 天候反映を認める地点（「東門付近」と「エントランス/正門付近」のみ）
+REFLECT_WEATHER_LOCATIONS = ["東門付近", "エントランス", "正門付近"]
+
 # 「エントランス」と「正門付近」の紐付け定義
 LOCATION_MAPPING = {
     "エントランス": "正門付近",
@@ -136,7 +139,7 @@ with tab1:
             df = db_container["df"]
             mapped_loc = LOCATION_MAPPING.get(loc_a, None)
             
-            match_mask = (df["日時"] == dt_str_a) & ((df["地点"] == loc_a) | (df["地点"] == mapped_loc) | (df["地点"] == "校内全体（全地点共通）"))
+            match_mask = (df["日時"] == dt_str_a) & ((df["地点"] == loc_a) | (df["地点"] == mapped_loc))
             
             if not df[match_mask].empty:
                 idx = df[match_mask].index[-1]
@@ -160,7 +163,7 @@ with tab1:
     # --- サブタブB: 天候・表面温度の入力 ---
     with sub_tab_b:
         st.subheader("2. 天候・地面の表面温度データの入力")
-        loc_b = st.selectbox("対象を選択", LOCATIONS_ENV, key="loc_b", help="「校内全体（全地点共通）」を選ぶと全地点のWBGT表示に天候が反映されます")
+        loc_b = st.selectbox("対象を選択", LOCATIONS_ENV, key="loc_b")
         
         c_date_b, c_time_b = st.columns(2)
         with c_date_b:
@@ -227,19 +230,28 @@ with tab2:
     view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況", "🌤️ 天候・表面温度最新状況"])
     df = db_container["df"]
 
-    def get_latest_common_weather():
-        if "天候" not in df.columns:
-            return None
-        common_df = df[df["地点"] == "校内全体（全地点共通）"]
-        if not common_df.empty:
-            return common_df.iloc[-1]
-        valid_weather_df = df[df["天候"].notna() & (df["天候"] != "-")]
-        return valid_weather_df.iloc[-1] if not valid_weather_df.empty else None
-
-    # --- サブタブ1: WBGT最新一覧（ボタンを押してポップアップ表示） ---
+    # --- サブタブ1: WBGT最新一覧 ---
     with view_tab_a:
-        st.subheader("校内WBGT測定値の最新情報")
-        common_weather_row = get_latest_common_weather()
+        # 校内全体の空写真があるか確認
+        common_df = df[df["地点"] == "校内全体（全地点共通）"]
+        common_sky_img = None
+        common_weather_str = "-"
+        common_wind_str = "-"
+        if not common_df.empty:
+            common_row = common_df.iloc[-1]
+            common_weather_str = common_row.get("天候", "-")
+            common_wind_str = common_row.get("風", "-")
+            sky_f = common_row.get("空画像", "-")
+            if pd.notna(sky_f) and sky_f != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_f))):
+                common_sky_img = os.path.join(IMAGE_DIR, str(sky_f))
+
+        # 「校内全体の天候登録」がある場合はトップに写真を1枚表示
+        if common_sky_img:
+            st.subheader("🌤️ 校内全体の最新の空模様")
+            st.image(common_sky_img, caption=f"校内全体の空（天候: {common_weather_str} / 風: {common_wind_str}）", use_container_width=True)
+            st.write("---")
+
+        st.subheader("地点別 WBGT最新測定値")
 
         for idx, loc in enumerate(LOCATIONS_WBGT):
             mapped_target = LOCATION_MAPPING.get(loc, None)
@@ -253,15 +265,20 @@ with tab2:
                     
                     cur_weather = latest_row.get("天候", "-")
                     cur_wind = latest_row.get("風", "-")
-                    
-                    weather_val = cur_weather if pd.notna(cur_weather) and cur_weather != "-" else (common_weather_row.get("天候", "-") if common_weather_row is not None else "-")
-                    wind_val = cur_wind if pd.notna(cur_wind) and cur_wind != "-" else (common_weather_row.get("風", "-") if common_weather_row is not None else "-")
+
+                    # 「東門付近」と「エントランス」のみ、個別天候がなければ校内全体天候を反映
+                    if loc in REFLECT_WEATHER_LOCATIONS:
+                        weather_val = cur_weather if pd.notna(cur_weather) and cur_weather != "-" else common_weather_str
+                        wind_val = cur_wind if pd.notna(cur_wind) and cur_wind != "-" else common_wind_str
+                    else:
+                        weather_val = cur_weather if pd.notna(cur_weather) and cur_weather != "-" else "-"
+                        wind_val = cur_wind if pd.notna(cur_wind) and cur_wind != "-" else "-"
                     
                     img_file = latest_row.get("画像", "-")
                     sky_img_file = latest_row.get("空画像", "-")
                     
-                    if (not pd.notna(sky_img_file) or sky_img_file == "-") and common_weather_row is not None:
-                        sky_img_file = common_weather_row.get("空画像", "-")
+                    if (not pd.notna(sky_img_file) or sky_img_file == "-") and (loc in REFLECT_WEATHER_LOCATIONS) and not common_df.empty:
+                        sky_img_file = common_df.iloc[-1].get("空画像", "-")
 
                     surf_img_file = latest_row.get("表面画像", "-")
 
@@ -276,7 +293,7 @@ with tab2:
                     ta_disp = f"{ta_val:.1f}℃" if isinstance(ta_val, (int, float)) and ta_val > 0 else "-"
                     rh_disp = f"{rh_val:.1f}%" if isinstance(rh_val, (int, float)) and rh_val > 0 else "-"
                     
-                    # 通常画面はスッキリカード形式
+                    # 画面上にはテキスト・カードのみを表示
                     st.markdown(
                         f"""
                         <div style="border-left: 6px solid {color}; padding: 10px 14px; background-color: #f8f9fa; border-radius: 6px; box-shadow: 1px 1px 3px rgba(0,0,0,0.05); margin-bottom: 6px;">
@@ -301,7 +318,7 @@ with tab2:
                     has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
                     has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
                     
-                    # 画像を見るためのボタン群（押すとポップアップ画面が出ます）
+                    # 写真確認用のボタン（押すとモーダルで表示）
                     btn_cols = st.columns([1, 1, 1, 2])
                     if has_sky:
                         with btn_cols[0]:
