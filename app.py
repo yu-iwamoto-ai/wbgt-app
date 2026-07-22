@@ -25,28 +25,38 @@ LOCATION_MAPPING = {
 WEATHERS = ["晴れ ☀️", "曇り ☁️", "雨 🌧️", "室内 🏢"]
 WINDS = ["なし 🍃", "弱風 🌬️", "強風 💨"]
 
+REQUIRED_COLUMNS = ["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"]
+
+# データフレームのカラムを補正する関数
+def ensure_columns(df):
+    for col in REQUIRED_COLUMNS:
+        if col not in df.columns:
+            df[col] = "-"
+    return df[REQUIRED_COLUMNS]
+
 # データを保持するメモリ空間
 @st.cache_resource(ttl=86400)
 def get_secure_database():
-    return {"df": pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])}
+    return {"df": pd.DataFrame(columns=REQUIRED_COLUMNS)}
 
 db_container = get_secure_database()
 
 # CSVファイルバックアップ準備
 DB_FILE = "wbgt_data.csv"
 if not os.path.exists(DB_FILE):
-    df_init = pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])
+    df_init = pd.DataFrame(columns=REQUIRED_COLUMNS)
     df_init.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
 else:
     try:
         file_df = pd.read_csv(DB_FILE, encoding="utf-8-sig")
-        for col in ["天候", "風", "表面温度", "画像", "空画像", "表面画像"]:
-            if col not in file_df.columns:
-                file_df[col] = "-"
-        if not file_df.empty and db_container["df"].empty:
+        file_df = ensure_columns(file_df)
+        if db_container["df"].empty and not file_df.empty:
             db_container["df"] = file_df
-    except:
+    except Exception:
         pass
+
+# db_container 内のデータフレームのカラムも念のため補正
+db_container["df"] = ensure_columns(db_container["df"])
 
 # 熱中症判定のルール（5段階）
 def judge_wbgt(val):
@@ -127,7 +137,7 @@ with tab1:
             
             if not df[match_mask].empty:
                 idx = df[match_mask].index[-1]
-                db_container["df"].loc[idx, "地点"] = loc_a  # 地点を設定
+                db_container["df"].loc[idx, "地点"] = loc_a
                 db_container["df"].loc[idx, "WBGT"] = wbgt_a
                 db_container["df"].loc[idx, "気温"] = ta_a
                 db_container["df"].loc[idx, "湿度"] = rh_a
@@ -137,7 +147,7 @@ with tab1:
                 st.success(f"【更新完了】 {loc_a} ({dt_str_a}) の測定データを更新・紐付けました！")
             else:
                 new_row = pd.DataFrame([[dt_str_a, loc_a, "-", "-", wbgt_a, ta_a, rh_a, "-", judgment, img_name, "-", "-"]], 
-                                       columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])
+                                       columns=REQUIRED_COLUMNS)
                 db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
                 st.success(f"【登録完了】 {loc_a} の測定データを保存しました！")
                 
@@ -186,7 +196,6 @@ with tab1:
             df = db_container["df"]
             mapped_loc = LOCATION_MAPPING.get(loc_b, None)
             
-            # 自地点または紐付けペア地点で同一日時のデータを探す
             match_mask = (df["日時"] == dt_str_b) & ((df["地点"] == loc_b) | (df["地点"] == mapped_loc))
             
             if not df[match_mask].empty:
@@ -199,7 +208,7 @@ with tab1:
                 st.success(f"【更新完了】 {loc_b} ({dt_str_b}) の天候情報を更新・紐付けました！")
             else:
                 new_row = pd.DataFrame([[dt_str_b, loc_b, weather_b, wind_b, 0.0, 0.0, 0.0, surface_temp_b, "データなし", "-", sky_img_name, surf_img_name]], 
-                                       columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])
+                                       columns=REQUIRED_COLUMNS)
                 db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
                 st.success(f"【登録完了】 {loc_b} の天候・表面温度データを保存しました！")
                 
@@ -215,12 +224,13 @@ with tab2:
     view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況", "🌤️ 天候・表面温度最新状況"])
     df = db_container["df"]
 
-    # 最新天候情報（校内共通データまたは最新の登録）を取得する関数
+    # 最新天候情報を取得する関数（安全対策追加）
     def get_latest_common_weather():
+        if "天候" not in df.columns:
+            return None
         common_df = df[df["地点"] == "校内全体（全地点共通）"]
         if not common_df.empty:
             return common_df.iloc[-1]
-        # なければ直近で「天候」が入力されている行を取得
         valid_weather_df = df[df["天候"].notna() & (df["天候"] != "-")]
         return valid_weather_df.iloc[-1] if not valid_weather_df.empty else None
 
@@ -236,25 +246,30 @@ with tab2:
             with st.container():
                 if not loc_df.empty:
                     latest_row = loc_df.iloc[-1]
-                    judgment_text = latest_row["判定"]
-                    wbgt_val = latest_row["WBGT"]
+                    judgment_text = latest_row.get("判定", "データなし")
+                    wbgt_val = latest_row.get("WBGT", 0)
                     
-                    # 天候・風の補完（データになければ校内共通天候を使用）
-                    weather_val = latest_row["天候"] if ("天候" in latest_row and pd.notna(latest_row["天候"]) and latest_row["天候"] != "-") else (common_weather_row["天候"] if common_weather_row is not None else "-")
-                    wind_val = latest_row["風"] if ("風" in latest_row and pd.notna(latest_row["風"]) and latest_row["風"] != "-") else (common_weather_row["風"] if common_weather_row is not None else "-")
+                    # 天候・風の取得
+                    cur_weather = latest_row.get("天候", "-")
+                    cur_wind = latest_row.get("風", "-")
                     
-                    img_file = latest_row["画像"] if "画像" in latest_row else "-"
-                    sky_img_file = latest_row["空画像"] if "空画像" in latest_row else "-"
-                    surf_img_file = latest_row["表面画像"] if "表面画像" in latest_row else "-"
+                    weather_val = cur_weather if pd.notna(cur_weather) and cur_weather != "-" else (common_weather_row.get("天候", "-") if common_weather_row is not None else "-")
+                    wind_val = cur_wind if pd.notna(cur_wind) and cur_wind != "-" else (common_weather_row.get("風", "-") if common_weather_row is not None else "-")
+                    
+                    img_file = latest_row.get("画像", "-")
+                    sky_img_file = latest_row.get("空画像", "-")
+                    surf_img_file = latest_row.get("表面画像", "-")
 
-                    raw_dt_str = str(latest_row['日時'])
+                    raw_dt_str = str(latest_row.get("日時", ""))
                     formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
                     
                     _, color = judge_wbgt(wbgt_val) if (isinstance(wbgt_val, (int, float)) and wbgt_val > 0) else ("データなし", "#BDC3C7")
                     
                     wbgt_disp = f"{wbgt_val:.1f}℃" if isinstance(wbgt_val, (int, float)) and wbgt_val > 0 else "-"
-                    ta_disp = f"{latest_row['気温']:.1f}℃" if isinstance(latest_row['気温'], (int, float)) and latest_row['気温'] > 0 else "-"
-                    rh_disp = f"{latest_row['湿度']:.1f}%" if isinstance(latest_row['湿度'], (int, float)) and latest_row['湿度'] > 0 else "-"
+                    ta_val = latest_row.get("気温", 0)
+                    rh_val = latest_row.get("湿度", 0)
+                    ta_disp = f"{ta_val:.1f}℃" if isinstance(ta_val, (int, float)) and ta_val > 0 else "-"
+                    rh_disp = f"{rh_val:.1f}%" if isinstance(rh_val, (int, float)) and rh_val > 0 else "-"
                     
                     st.markdown(
                         f"""
@@ -276,22 +291,22 @@ with tab2:
                         unsafe_allow_html=True
                     )
                     
-                    has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, img_file))
-                    has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, sky_img_file))
-                    has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, surf_img_file))
+                    has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
+                    has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_img_file)))
+                    has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
                     
                     if has_main or has_sky or has_surf:
                         with st.expander("📷 関連画像・写真を表示"):
                             cols = st.columns(3)
                             if has_main:
                                 with cols[0]:
-                                    st.image(os.path.join(IMAGE_DIR, img_file), caption="機器写真", use_container_width=True)
+                                    st.image(os.path.join(IMAGE_DIR, str(img_file)), caption="機器写真", use_container_width=True)
                             if has_sky:
                                 with cols[1]:
-                                    st.image(os.path.join(IMAGE_DIR, sky_img_file), caption="空の写真", use_container_width=True)
+                                    st.image(os.path.join(IMAGE_DIR, str(sky_img_file)), caption="空の写真", use_container_width=True)
                             if has_surf:
                                 with cols[2]:
-                                    st.image(os.path.join(IMAGE_DIR, surf_img_file), caption="表面温度写真", use_container_width=True)
+                                    st.image(os.path.join(IMAGE_DIR, str(surf_img_file)), caption="表面温度写真", use_container_width=True)
                     st.write("")
                 else:
                     st.markdown(
@@ -316,13 +331,13 @@ with tab2:
             with st.container():
                 if not loc_df.empty:
                     latest_row = loc_df.iloc[-1]
-                    weather_val = latest_row["天候"] if "天候" in latest_row and pd.notna(latest_row["天候"]) else "-"
-                    wind_val = latest_row["風"] if "風" in latest_row and pd.notna(latest_row["風"]) else "-"
-                    surf_val = latest_row["表面温度"] if "表面温度" in latest_row and pd.notna(latest_row["表面温度"]) else "-"
-                    sky_img_file = latest_row["空画像"] if "空画像" in latest_row else "-"
-                    surf_img_file = latest_row["表面画像"] if "表面画像" in latest_row else "-"
+                    weather_val = latest_row.get("天候", "-")
+                    wind_val = latest_row.get("風", "-")
+                    surf_val = latest_row.get("表面温度", "-")
+                    sky_img_file = latest_row.get("空画像", "-")
+                    surf_img_file = latest_row.get("表面画像", "-")
                     
-                    raw_dt_str = str(latest_row['日時'])
+                    raw_dt_str = str(latest_row.get("日時", ""))
                     formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
                     surf_disp = f"{surf_val:.1f}℃" if isinstance(surf_val, (int, float)) else f"{surf_val}"
                     
@@ -343,19 +358,19 @@ with tab2:
                         unsafe_allow_html=True
                     )
                     
-                    has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, sky_img_file))
-                    has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, surf_img_file))
+                    has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_img_file)))
+                    has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
                     
                     if has_sky or has_surf:
                         cols = st.columns(2)
                         if has_sky:
                             with cols[0]:
                                 with st.expander("🌤️ 空の写真"):
-                                    st.image(os.path.join(IMAGE_DIR, sky_img_file), caption=f"{loc} の空の写真", use_container_width=True)
+                                    st.image(os.path.join(IMAGE_DIR, str(sky_img_file)), caption=f"{loc} の空の写真", use_container_width=True)
                         if has_surf:
                             with cols[1]:
                                 with st.expander("🌡️ 表面温度の写真"):
-                                    st.image(os.path.join(IMAGE_DIR, surf_img_file), caption=f"{loc} の表面温度写真", use_container_width=True)
+                                    st.image(os.path.join(IMAGE_DIR, str(surf_img_file)), caption=f"{loc} の表面温度写真", use_container_width=True)
                     st.write("")
                 else:
                     st.markdown(
