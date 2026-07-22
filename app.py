@@ -15,7 +15,7 @@ os.makedirs(IMAGE_DIR, exist_ok=True)
 # WBGT用の観測地点（従来通り）
 LOCATIONS_WBGT = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
 
-# 天候・地面温度用の観測地点（ご要望の5箇所）
+# 天候・地面温度用の観測地点（指定5箇所）
 LOCATIONS_ENV = ["正門付近", "東門付近", "グラウンド", "南館屋上", "建学の庭付近"]
 
 WEATHERS = ["晴れ ☀️", "曇り ☁️", "雨 🌧️", "室内 🏢"]
@@ -190,97 +190,133 @@ with tab1:
             st.rerun()
 
 # ==========================================
-# タブ2: 地点別最新一覧
+# タブ2: 地点別最新一覧（小タブ分割）
 # ==========================================
 with tab2:
     st.header("📋 校内各地点の最新状況")
     
-    # 全表示対象地点（WBGT用＋天候用の全地点を重複なく結合）
-    ALL_LOCATIONS = list(dict.fromkeys(LOCATIONS_WBGT + LOCATIONS_ENV))
+    # 最新一覧も2つのサブタブに分ける
+    view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況", "🌤️ 天候・表面温度最新状況"])
     df = db_container["df"]
-    
-    for loc in ALL_LOCATIONS:
-        loc_df = df[df["地点"] == loc]
-        
-        with st.container():
-            if not loc_df.empty:
-                latest_row = loc_df.iloc[-1]
-                judgment_text = latest_row["判定"]
-                wbgt_val = latest_row["WBGT"]
-                
-                weather_val = latest_row["天候"] if "天候" in latest_row and pd.notna(latest_row["天候"]) else "-"
-                wind_val = latest_row["風"] if "風" in latest_row and pd.notna(latest_row["風"]) else "-"
-                surf_val = latest_row["表面温度"] if "表面温度" in latest_row and pd.notna(latest_row["表面温度"]) else "-"
-                img_file = latest_row["画像"] if "画像" in latest_row else "-"
-                sky_img_file = latest_row["空画像"] if "空画像" in latest_row else "-"
-                surf_img_file = latest_row["表面画像"] if "表面画像" in latest_row else "-"
-                
-                raw_dt_str = str(latest_row['日時'])
-                formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
-                
-                _, color = judge_wbgt(wbgt_val) if (isinstance(wbgt_val, (int, float)) and wbgt_val > 0) else ("情報登録あり", "#2ECC71")
-                
-                wbgt_disp = f"{wbgt_val:.1f}℃" if isinstance(wbgt_val, (int, float)) and wbgt_val > 0 else "-"
-                ta_disp = f"{latest_row['気温']:.1f}℃" if isinstance(latest_row['気温'], (int, float)) and latest_row['気温'] > 0 else "-"
-                rh_disp = f"{latest_row['湿度']:.1f}%" if isinstance(latest_row['湿度'], (int, float)) and latest_row['湿度'] > 0 else "-"
-                surf_disp = f"{surf_val:.1f}℃" if isinstance(surf_val, (int, float)) else f"{surf_val}"
-                
-                st.markdown(
-                    f"""
-                    <div style="border-left: 6px solid {color}; padding: 8px 12px; margin-bottom: 4px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 1rem; font-weight: bold; color: #333;">📍 {loc}</span>
-                            <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">{judgment_text}</span>
+
+    # --- サブタブ1: WBGT最新一覧 ---
+    with view_tab_a:
+        st.subheader("校内WBGT測定値の最新情報")
+        for loc in LOCATIONS_WBGT:
+            loc_df = df[df["地点"] == loc]
+            with st.container():
+                if not loc_df.empty:
+                    latest_row = loc_df.iloc[-1]
+                    judgment_text = latest_row["判定"]
+                    wbgt_val = latest_row["WBGT"]
+                    img_file = latest_row["画像"] if "画像" in latest_row else "-"
+                    
+                    raw_dt_str = str(latest_row['日時'])
+                    formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
+                    
+                    _, color = judge_wbgt(wbgt_val) if (isinstance(wbgt_val, (int, float)) and wbgt_val > 0) else ("データなし", "#BDC3C7")
+                    
+                    wbgt_disp = f"{wbgt_val:.1f}℃" if isinstance(wbgt_val, (int, float)) and wbgt_val > 0 else "-"
+                    ta_disp = f"{latest_row['気温']:.1f}℃" if isinstance(latest_row['気温'], (int, float)) and latest_row['気温'] > 0 else "-"
+                    rh_disp = f"{latest_row['湿度']:.1f}%" if isinstance(latest_row['湿度'], (int, float)) and latest_row['湿度'] > 0 else "-"
+                    
+                    st.markdown(
+                        f"""
+                        <div style="border-left: 6px solid {color}; padding: 8px 12px; margin-bottom: 4px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 1rem; font-weight: bold; color: #333;">📍 {loc}</span>
+                                <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">{judgment_text}</span>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 0.85rem; color: #444;">
+                                <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold;">{wbgt_disp}</span></span>
+                                <span><b>気温:</b> {ta_disp}</span>
+                                <span><b>湿度:</b> {rh_disp}</span>
+                                <span style="margin-left: auto; color: #888; font-weight: bold;">📅 {formatted_dt_str}</span>
+                            </div>
                         </div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 0.85rem; color: #444;">
-                            <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold;">{wbgt_disp}</span></span>
-                            <span><b>気温:</b> {ta_disp}</span>
-                            <span><b>湿度:</b> {rh_disp}</span>
-                            <span><b>地面表面温度:</b> <span style="color:#D35400; font-weight:bold;">{surf_disp}</span></span>
-                        </div>
-                        <div style="display: flex; gap: 12px; margin-top: 4px; font-size: 0.8rem; color: #666;">
-                            <span><b>天候:</b> {weather_val}</span>
-                            <span><b>風:</b> {wind_val}</span>
-                            <span style="margin-left: auto; color: #888; font-weight: bold;">📅 {formatted_dt_str}</span>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                # 写真ボタンの表示
-                has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, img_file))
-                has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, sky_img_file))
-                has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, surf_img_file))
-                
-                if has_main or has_sky or has_surf:
-                    cols = st.columns(3)
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    
+                    has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, img_file))
                     if has_main:
-                        with cols[0]:
-                            with st.expander("📸 機器の写真"):
-                                st.image(os.path.join(IMAGE_DIR, img_file), caption=f"{loc} の測定機器写真", use_container_width=True)
-                    if has_sky:
-                        with cols[1]:
-                            with st.expander("🌤️ 空の写真"):
-                                st.image(os.path.join(IMAGE_DIR, sky_img_file), caption=f"{loc} の空の写真", use_container_width=True)
-                    if has_surf:
-                        with cols[2]:
-                            with st.expander("🌡️ 表面温度の写真"):
-                                st.image(os.path.join(IMAGE_DIR, surf_img_file), caption=f"{loc} の表面温度写真", use_container_width=True)
-                
-                st.write("")
-            else:
-                st.markdown(
-                    """
-                    <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
-                            <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
+                        with st.expander("📸 機器の写真"):
+                            st.image(os.path.join(IMAGE_DIR, img_file), caption=f"{loc} の測定機器写真", use_container_width=True)
+                    st.write("")
+                else:
+                    st.markdown(
+                        f"""
+                        <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
+                                <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
+                            </div>
                         </div>
-                    </div>
-                    """.format(loc=loc),
-                    unsafe_allow_html=True
-                )
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+    # --- サブタブ2: 天候・表面温度最新一覧 ---
+    with view_tab_b:
+        st.subheader("校内天候・地面表面温度の最新情報")
+        for loc in LOCATIONS_ENV:
+            loc_df = df[df["地点"] == loc]
+            with st.container():
+                if not loc_df.empty:
+                    latest_row = loc_df.iloc[-1]
+                    weather_val = latest_row["天候"] if "天候" in latest_row and pd.notna(latest_row["天候"]) else "-"
+                    wind_val = latest_row["風"] if "風" in latest_row and pd.notna(latest_row["風"]) else "-"
+                    surf_val = latest_row["表面温度"] if "表面温度" in latest_row and pd.notna(latest_row["表面温度"]) else "-"
+                    sky_img_file = latest_row["空画像"] if "空画像" in latest_row else "-"
+                    surf_img_file = latest_row["表面画像"] if "表面画像" in latest_row else "-"
+                    
+                    raw_dt_str = str(latest_row['日時'])
+                    formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
+                    surf_disp = f"{surf_val:.1f}℃" if isinstance(surf_val, (int, float)) else f"{surf_val}"
+                    
+                    st.markdown(
+                        f"""
+                        <div style="border-left: 6px solid #2ECC71; padding: 8px 12px; margin-bottom: 4px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 1rem; font-weight: bold; color: #333;">📍 {loc}</span>
+                                <span style="color: #888; font-weight: bold; font-size: 0.8rem;">📅 {formatted_dt_str}</span>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; font-size: 0.85rem; color: #444;">
+                                <span><b>天候:</b> {weather_val}</span>
+                                <span><b>風:</b> {wind_val}</span>
+                                <span><b>地面表面温度:</b> <span style="color:#D35400; font-weight:bold;">{surf_disp}</span></span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    
+                    has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, sky_img_file))
+                    has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, surf_img_file))
+                    
+                    if has_sky or has_surf:
+                        cols = st.columns(2)
+                        if has_sky:
+                            with cols[0]:
+                                with st.expander("🌤️ 空の写真"):
+                                    st.image(os.path.join(IMAGE_DIR, sky_img_file), caption=f"{loc} の空の写真", use_container_width=True)
+                        if has_surf:
+                            with cols[1]:
+                                with st.expander("🌡️ 表面温度の写真"):
+                                    st.image(os.path.join(IMAGE_DIR, surf_img_file), caption=f"{loc} の表面温度写真", use_container_width=True)
+                    st.write("")
+                else:
+                    st.markdown(
+                        f"""
+                        <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
+                                <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
 # ==========================================
 # タブ3: 全履歴（CSV）
