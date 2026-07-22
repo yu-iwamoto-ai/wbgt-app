@@ -55,7 +55,6 @@ else:
     except Exception:
         pass
 
-# db_container 内のデータフレームのカラムも念のため補正
 db_container["df"] = ensure_columns(db_container["df"])
 
 # 熱中症判定のルール（5段階）
@@ -132,7 +131,6 @@ with tab1:
             df = db_container["df"]
             mapped_loc = LOCATION_MAPPING.get(loc_a, None)
             
-            # 自地点、ペア地点、または「校内全体」の同一日時データを探す
             match_mask = (df["日時"] == dt_str_a) & ((df["地点"] == loc_a) | (df["地点"] == mapped_loc) | (df["地点"] == "校内全体（全地点共通）"))
             
             if not df[match_mask].empty:
@@ -221,10 +219,9 @@ with tab1:
 with tab2:
     st.header("📋 校内各地点の最新状況")
     
-    view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況", "🌤️ 天候・表面温度最新状況"])
+    view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況（空画像同時表示）", "🌤️ 天候・表面温度最新状況"])
     df = db_container["df"]
 
-    # 最新天候情報を取得する関数（安全対策追加）
     def get_latest_common_weather():
         if "天候" not in df.columns:
             return None
@@ -234,9 +231,9 @@ with tab2:
         valid_weather_df = df[df["天候"].notna() & (df["天候"] != "-")]
         return valid_weather_df.iloc[-1] if not valid_weather_df.empty else None
 
-    # --- サブタブ1: WBGT最新一覧 ---
+    # --- サブタブ1: WBGT最新一覧（数値と空写真の同時表示） ---
     with view_tab_a:
-        st.subheader("校内WBGT測定値の最新情報")
+        st.subheader("校内WBGT測定値 ＆ 空の同時表示")
         common_weather_row = get_latest_common_weather()
 
         for loc in LOCATIONS_WBGT:
@@ -249,7 +246,6 @@ with tab2:
                     judgment_text = latest_row.get("判定", "データなし")
                     wbgt_val = latest_row.get("WBGT", 0)
                     
-                    # 天候・風の取得
                     cur_weather = latest_row.get("天候", "-")
                     cur_wind = latest_row.get("風", "-")
                     
@@ -258,6 +254,11 @@ with tab2:
                     
                     img_file = latest_row.get("画像", "-")
                     sky_img_file = latest_row.get("空画像", "-")
+                    
+                    # 空画像が個別になければ共通天候の空画像を使用
+                    if (not pd.notna(sky_img_file) or sky_img_file == "-") and common_weather_row is not None:
+                        sky_img_file = common_weather_row.get("空画像", "-")
+
                     surf_img_file = latest_row.get("表面画像", "-")
 
                     raw_dt_str = str(latest_row.get("日時", ""))
@@ -271,47 +272,56 @@ with tab2:
                     ta_disp = f"{ta_val:.1f}℃" if isinstance(ta_val, (int, float)) and ta_val > 0 else "-"
                     rh_disp = f"{rh_val:.1f}%" if isinstance(rh_val, (int, float)) and rh_val > 0 else "-"
                     
-                    st.markdown(
-                        f"""
-                        <div style="border-left: 6px solid {color}; padding: 8px 12px; margin-bottom: 4px; background-color: #f8f9fa; border-radius: 4px; box-shadow: 1px 1px 2px rgba(0,0,0,0.05);">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 1rem; font-weight: bold; color: #333;">📍 {loc}</span>
-                                <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">{judgment_text}</span>
-                            </div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 0.85rem; color: #444;">
-                                <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold;">{wbgt_disp}</span></span>
-                                <span><b>気温:</b> {ta_disp}</span>
-                                <span><b>湿度:</b> {rh_disp}</span>
-                                <span><b>天候:</b> {weather_val}</span>
-                                <span><b>風:</b> {wind_val}</span>
-                                <span style="margin-left: auto; color: #888; font-weight: bold;">📅 {formatted_dt_str}</span>
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    # カラム分割で左に数値カード、右に空の写真を出して同時表示！
+                    c_info, c_photo = st.columns([2, 1])
                     
-                    has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
+                    with c_info:
+                        st.markdown(
+                            f"""
+                            <div style="border-left: 6px solid {color}; padding: 10px 14px; background-color: #f8f9fa; border-radius: 6px; box-shadow: 1px 1px 3px rgba(0,0,0,0.08); min-height: 110px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 1.05rem; font-weight: bold; color: #333;">📍 {loc}</span>
+                                    <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">{judgment_text}</span>
+                                </div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 8px; font-size: 0.88rem; color: #333;">
+                                    <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold; font-size:1.1rem;">{wbgt_disp}</span></span>
+                                    <span><b>気温:</b> {ta_disp}</span>
+                                    <span><b>湿度:</b> {rh_disp}</span>
+                                    <span><b>天候:</b> {weather_val}</span>
+                                    <span><b>風:</b> {wind_val}</span>
+                                </div>
+                                <div style="text-align: right; margin-top: 4px; color: #888; font-weight: bold; font-size: 0.75rem;">📅 {formatted_dt_str}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    
                     has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_img_file)))
-                    has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
+                    has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
                     
-                    if has_main or has_sky or has_surf:
-                        with st.expander("📷 関連画像・写真を表示"):
-                            cols = st.columns(3)
+                    with c_photo:
+                        if has_sky:
+                            st.image(os.path.join(IMAGE_DIR, str(sky_img_file)), caption="🌤️ 空の状況", use_container_width=True)
+                        elif has_main:
+                            st.image(os.path.join(IMAGE_DIR, str(img_file)), caption="📷 機器写真", use_container_width=True)
+                        else:
+                            st.info("🖼️ 写真なし")
+                    
+                    # 機器写真や表面画像が別にある場合は下の展開メニューに残す
+                    has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
+                    if (has_sky and has_main) or has_surf:
+                        with st.expander("🔍 その他の写真を表示（機器・表面温度など）"):
+                            sub_cols = st.columns(3)
                             if has_main:
-                                with cols[0]:
-                                    st.image(os.path.join(IMAGE_DIR, str(img_file)), caption="機器写真", use_container_width=True)
-                            if has_sky:
-                                with cols[1]:
-                                    st.image(os.path.join(IMAGE_DIR, str(sky_img_file)), caption="空の写真", use_container_width=True)
+                                with sub_cols[0]: st.image(os.path.join(IMAGE_DIR, str(img_file)), caption="機器写真", use_container_width=True)
                             if has_surf:
-                                with cols[2]:
-                                    st.image(os.path.join(IMAGE_DIR, str(surf_img_file)), caption="表面温度写真", use_container_width=True)
-                    st.write("")
+                                with sub_cols[1]: st.image(os.path.join(IMAGE_DIR, str(surf_img_file)), caption="表面温度写真", use_container_width=True)
+
+                    st.write("---")
                 else:
                     st.markdown(
                         f"""
-                        <div style="border-left: 6px solid #BDC3C7; padding: 6px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
+                        <div style="border-left: 6px solid #BDC3C7; padding: 8px 12px; margin-bottom: 6px; background-color: #f8f9fa; border-radius: 4px;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <span style="font-size: 1rem; font-weight: bold; color: #7f8c8d;">📍 {loc}</span>
                                 <span style="background-color: #BDC3C7; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">データなし</span>
