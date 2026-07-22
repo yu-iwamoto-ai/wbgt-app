@@ -157,6 +157,10 @@ with tab2:
                 img_file = latest_row["画像"] if "画像" in latest_row else "-"
                 sky_img_file = latest_row["空画像"] if "空画像" in latest_row else "-"
                 
+                # 日時の整形（「2026-07-22 15:30:00」→「07/22 15:30」にフォーマット）
+                raw_dt_str = str(latest_row['日時'])
+                formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
+                
                 _, color = judge_wbgt(wbgt_val)
                 
                 st.markdown(
@@ -174,14 +178,14 @@ with tab2:
                         <div style="display: flex; gap: 12px; margin-top: 4px; font-size: 0.8rem; color: #666;">
                             <span><b>天候:</b> {weather_val}</span>
                             <span><b>風:</b> {wind_val}</span>
-                            <span style="margin-left: auto; color: #888;">🕒 {latest_row['日時'][11:16]}</span>
+                            <span style="margin-left: auto; color: #888; font-weight: bold;">📅 {formatted_dt_str}</span>
                         </div>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
                 
-                # 写真ボタンの表示（押したらパッと見られます）
+                # 写真ボタンの表示（押したら確認できる仕様）
                 has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, img_file))
                 has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, sky_img_file))
                 
@@ -222,3 +226,4 @@ with tab3:
         st.download_button("これまでの全データをCSVで保存", data=csv_data, file_name="wbgt_history_all.csv", mime="text/csv")
     else:
         st.info("登録されたデータはまだありません。")
+        
