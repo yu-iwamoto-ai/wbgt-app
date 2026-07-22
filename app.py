@@ -80,6 +80,11 @@ def save_uploaded_image(file_obj, prefix, dt_str, loc_str):
             f.write(file_obj.getbuffer())
     return filename
 
+# 画像ポップアップ（モーダル）表示用関数
+@st.dialog("🖼️ 写真の拡大表示")
+def show_image_modal(image_path, title="拡大写真"):
+    st.image(image_path, caption=title, use_container_width=True)
+
 st.title("🌡️ 校内WBGT・環境観測システム")
 st.caption("WBGT数値データ ＋ 天候・地面表面温度・写真保存（機器・空・表面温度）")
 
@@ -219,7 +224,7 @@ with tab1:
 with tab2:
     st.header("📋 校内各地点の最新状況")
     
-    view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況（空画像同時表示）", "🌤️ 天候・表面温度最新状況"])
+    view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況（写真押して拡大可）", "🌤️ 天候・表面温度最新状況"])
     df = db_container["df"]
 
     def get_latest_common_weather():
@@ -231,12 +236,12 @@ with tab2:
         valid_weather_df = df[df["天候"].notna() & (df["天候"] != "-")]
         return valid_weather_df.iloc[-1] if not valid_weather_df.empty else None
 
-    # --- サブタブ1: WBGT最新一覧（数値と空写真の同時表示） ---
+    # --- サブタブ1: WBGT最新一覧（押して拡大可能） ---
     with view_tab_a:
-        st.subheader("校内WBGT測定値 ＆ 空の同時表示")
+        st.subheader("校内WBGT測定値 ＆ 空の同時表示（押して拡大）")
         common_weather_row = get_latest_common_weather()
 
-        for loc in LOCATIONS_WBGT:
+        for idx, loc in enumerate(LOCATIONS_WBGT):
             mapped_target = LOCATION_MAPPING.get(loc, None)
             loc_df = df[(df["地点"] == loc) | (df["地点"] == mapped_target)] if mapped_target else df[df["地点"] == loc]
             
@@ -255,7 +260,6 @@ with tab2:
                     img_file = latest_row.get("画像", "-")
                     sky_img_file = latest_row.get("空画像", "-")
                     
-                    # 空画像が個別になければ共通天候の空画像を使用
                     if (not pd.notna(sky_img_file) or sky_img_file == "-") and common_weather_row is not None:
                         sky_img_file = common_weather_row.get("空画像", "-")
 
@@ -272,7 +276,6 @@ with tab2:
                     ta_disp = f"{ta_val:.1f}℃" if isinstance(ta_val, (int, float)) and ta_val > 0 else "-"
                     rh_disp = f"{rh_val:.1f}%" if isinstance(rh_val, (int, float)) and rh_val > 0 else "-"
                     
-                    # カラム分割で左に数値カード、右に空の写真を出して同時表示！
                     c_info, c_photo = st.columns([2, 1])
                     
                     with c_info:
@@ -301,21 +304,34 @@ with tab2:
                     
                     with c_photo:
                         if has_sky:
-                            st.image(os.path.join(IMAGE_DIR, str(sky_img_file)), caption="🌤️ 空の状況", use_container_width=True)
+                            sky_path = os.path.join(IMAGE_DIR, str(sky_img_file))
+                            st.image(sky_path, caption="🌤️ 空の状況", use_container_width=True)
+                            if st.button("🔍 拡大", key=f"btn_zoom_sky_{idx}"):
+                                show_image_modal(sky_path, f"{loc} - 空の写真")
                         elif has_main:
-                            st.image(os.path.join(IMAGE_DIR, str(img_file)), caption="📷 機器写真", use_container_width=True)
+                            main_path = os.path.join(IMAGE_DIR, str(img_file))
+                            st.image(main_path, caption="📷 機器写真", use_container_width=True)
+                            if st.button("🔍 拡大", key=f"btn_zoom_main_{idx}"):
+                                show_image_modal(main_path, f"{loc} - 測定機器")
                         else:
                             st.info("🖼️ 写真なし")
                     
-                    # 機器写真や表面画像が別にある場合は下の展開メニューに残す
                     has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
                     if (has_sky and has_main) or has_surf:
                         with st.expander("🔍 その他の写真を表示（機器・表面温度など）"):
                             sub_cols = st.columns(3)
-                            if has_main:
-                                with sub_cols[0]: st.image(os.path.join(IMAGE_DIR, str(img_file)), caption="機器写真", use_container_width=True)
+                            if has_main and has_sky:
+                                with sub_cols[0]: 
+                                    main_p = os.path.join(IMAGE_DIR, str(img_file))
+                                    st.image(main_p, caption="機器写真", use_container_width=True)
+                                    if st.button("拡大", key=f"btn_sub_main_{idx}"):
+                                        show_image_modal(main_p, f"{loc} - 測定機器")
                             if has_surf:
-                                with sub_cols[1]: st.image(os.path.join(IMAGE_DIR, str(surf_img_file)), caption="表面温度写真", use_container_width=True)
+                                with sub_cols[1]: 
+                                    surf_p = os.path.join(IMAGE_DIR, str(surf_img_file))
+                                    st.image(surf_p, caption="表面温度写真", use_container_width=True)
+                                    if st.button("拡大", key=f"btn_sub_surf_{idx}"):
+                                        show_image_modal(surf_p, f"{loc} - 表面温度")
 
                     st.write("---")
                 else:
@@ -334,7 +350,7 @@ with tab2:
     # --- サブタブ2: 天候・表面温度最新一覧 ---
     with view_tab_b:
         st.subheader("校内天候・地面表面温度の最新情報")
-        for loc in LOCATIONS_ENV:
+        for idx, loc in enumerate(LOCATIONS_ENV):
             mapped_target = LOCATION_MAPPING.get(loc, None)
             loc_df = df[(df["地点"] == loc) | (df["地点"] == mapped_target)] if mapped_target else df[df["地点"] == loc]
             
@@ -375,12 +391,16 @@ with tab2:
                         cols = st.columns(2)
                         if has_sky:
                             with cols[0]:
-                                with st.expander("🌤️ 空の写真"):
-                                    st.image(os.path.join(IMAGE_DIR, str(sky_img_file)), caption=f"{loc} の空の写真", use_container_width=True)
+                                sky_p = os.path.join(IMAGE_DIR, str(sky_img_file))
+                                st.image(sky_p, caption=f"{loc} の空", use_container_width=True)
+                                if st.button("🔍 拡大表示", key=f"btn_env_sky_{idx}"):
+                                    show_image_modal(sky_p, f"{loc} - 空の写真")
                         if has_surf:
                             with cols[1]:
-                                with st.expander("🌡️ 表面温度の写真"):
-                                    st.image(os.path.join(IMAGE_DIR, str(surf_img_file)), caption=f"{loc} の表面温度写真", use_container_width=True)
+                                surf_p = os.path.join(IMAGE_DIR, str(surf_img_file))
+                                st.image(surf_p, caption=f"{loc} の表面温度", use_container_width=True)
+                                if st.button("🔍 拡大表示", key=f"btn_env_surf_{idx}"):
+                                    show_image_modal(surf_p, f"{loc} - 表面温度")
                     st.write("")
                 else:
                     st.markdown(
