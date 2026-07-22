@@ -136,7 +136,6 @@ with tab1:
             dt_stamp = f"{date_a.strftime('%Y%m%d')}_{time_part_a.replace(':', '')}"
             img_name = save_uploaded_image(uploaded_main_a, "main", dt_stamp, loc_a)
             
-            # 完全な同日・同時刻・同地点のみ上書き、時刻が異なれば新規行として追加
             df = db_container["df"]
             match_mask = (df["日時"] == dt_str_a) & (df["地点"] == loc_a)
             
@@ -196,7 +195,6 @@ with tab1:
             sky_img_name = save_uploaded_image(uploaded_sky_b, "sky", dt_stamp, loc_b)
             surf_img_name = save_uploaded_image(uploaded_surf_b, "surf", dt_stamp, loc_b)
             
-            # 完全な同日・同時刻・同地点のみ上書き、時刻が異なれば新規行として追加
             df = db_container["df"]
             match_mask = (df["日時"] == dt_str_b) & (df["地点"] == loc_b)
             
@@ -228,7 +226,6 @@ with tab2:
 
     # --- サブタブ1: WBGT最新一覧 ---
     with view_tab_a:
-        # 校内全体の空写真確認
         common_df = df[df["地点"] == "校内全体（全地点共通）"]
         common_sky_img = None
         common_weather_str = "-"
@@ -241,7 +238,6 @@ with tab2:
             if pd.notna(sky_f) and sky_f != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_f))):
                 common_sky_img = os.path.join(IMAGE_DIR, str(sky_f))
 
-        # 校内全体の天候登録があれば一番上に1枚表示
         if common_sky_img:
             st.subheader("🌤️ 校内全体の最新の空模様")
             st.image(common_sky_img, caption=f"校内全体の空（天候: {common_weather_str} / 風: {common_wind_str}）", use_container_width=True)
@@ -250,19 +246,14 @@ with tab2:
         st.subheader("地点別 WBGT最新測定値")
 
         for idx, loc in enumerate(LOCATIONS_WBGT):
-            # 対象地点（および同義地点）のデータ抽出
             mapped_target = LOCATION_MAPPING.get(loc, None)
             loc_df = df[(df["地点"] == loc) | (df["地点"] == mapped_target)] if mapped_target else df[df["地点"] == loc]
             
-            # WBGT数値がある最新レコードを取得
             wbgt_records = loc_df[loc_df["WBGT"] > 0]
-            
-            # 天候数値がある最新レコードを取得
             weather_records = loc_df[(loc_df["天候"].notna()) & (loc_df["天候"] != "-")]
             
             with st.container():
                 if not wbgt_records.empty or not weather_records.empty:
-                    # WBGTの最新情報
                     latest_wbgt_row = wbgt_records.iloc[-1] if not wbgt_records.empty else (loc_df.iloc[-1] if not loc_df.empty else None)
                     
                     wbgt_val = latest_wbgt_row.get("WBGT", 0) if latest_wbgt_row is not None else 0
@@ -272,7 +263,6 @@ with tab2:
                     img_file = latest_wbgt_row.get("画像", "-") if latest_wbgt_row is not None else "-"
                     wbgt_dt_str = str(latest_wbgt_row.get("日時", "")) if latest_wbgt_row is not None else ""
                     
-                    # 天候の最新情報（特定2地点なら個別天候データから優先抽出）
                     weather_val = "-"
                     wind_val = "-"
                     sky_img_file = "-"
@@ -285,15 +275,12 @@ with tab2:
                         sky_img_file = latest_weather_row.get("空画像", "-")
                         surf_img_file = latest_weather_row.get("表面画像", "-")
                     elif loc in REFLECT_WEATHER_LOCATIONS:
-                        # 個別設定がなく校内全体設定があれば補完
                         weather_val = common_weather_str
                         wind_val = common_wind_str
                         if not common_df.empty:
                             sky_img_file = common_df.iloc[-1].get("空画像", "-")
 
-                    # 日時の表示整形
                     disp_dt = wbgt_dt_str[5:16].replace('-', '/') if len(wbgt_dt_str) >= 16 else wbgt_dt_str
-                    
                     _, color = judge_wbgt(wbgt_val) if (isinstance(wbgt_val, (int, float)) and wbgt_val > 0) else ("データなし", "#BDC3C7")
                     
                     wbgt_disp = f"{wbgt_val:.1f}℃" if isinstance(wbgt_val, (int, float)) and wbgt_val > 0 else "-"
@@ -320,12 +307,10 @@ with tab2:
                         unsafe_allow_html=True
                     )
                     
-                    # 各種写真の存在判定
                     has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_img_file)))
                     has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
                     has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
                     
-                    # 各写真モーダル表示ボタン
                     btn_cols = st.columns([1, 1, 1, 2])
                     if has_sky:
                         with btn_cols[0]:
@@ -361,7 +346,6 @@ with tab2:
             mapped_target = LOCATION_MAPPING.get(loc, None)
             loc_df = df[(df["地点"] == loc) | (df["地点"] == mapped_target)] if mapped_target else df[df["地点"] == loc]
             
-            # 天候データの存在する最新レコード
             weather_records = loc_df[(loc_df["天候"].notna()) & (loc_df["天候"] != "-")]
             
             with st.container():
@@ -421,12 +405,33 @@ with tab2:
                     )
 
 # ==========================================
-# タブ3: 全履歴（CSV）
+# タブ3: 全履歴（CSV）＆ 消去機能
 # ==========================================
 with tab3:
-    st.header("📊 過去の全データ記録")
+    st.header("📊 過去の全データ記録・管理")
     df = db_container["df"]
+    
     if not df.empty:
+        # データ消去用エリア
+        with st.expander("🗑️ 不要なデータを消去・削除する"):
+            st.warning("※選択した行のデータが完全に削除されます。")
+            
+            # 識別しやすい「インデックス + 日時 + 地点」の選択肢リストを作成
+            delete_options = [f"ID {i}: [{row['日時']}] {row['地点']} (WBGT:{row['WBGT']} / 天候:{row['天候']})" for i, row in df.iterrows()]
+            selected_to_delete = st.selectbox("削除するデータを選択してください", delete_options, index=len(delete_options)-1)
+            
+            if st.button("選択したデータを削除する", type="secondary"):
+                # 選択されたID（インデックス）を抽出
+                target_idx = int(selected_to_delete.split(":")[0].replace("ID ", ""))
+                
+                # 指定行を削除してインデックスを詰める
+                db_container["df"] = db_container["df"].drop(index=target_idx).reset_index(drop=True)
+                db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
+                
+                st.success("データを正常に削除しました！")
+                st.rerun()
+
+        st.write("---")
         st.dataframe(df.iloc[::-1], use_container_width=True)
         csv_data = df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("これまでの全データをCSVで保存", data=csv_data, file_name="wbgt_history_all.csv", mime="text/csv")
