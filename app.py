@@ -8,34 +8,43 @@ from PIL import Image, ImageOps
 # ページの設定
 st.set_page_config(page_title="校内WBGT観測システム", page_icon="🌡️", layout="centered")
 
-# フォルダと5地点の設定
+# フォルダと地点の設定
 IMAGE_DIR = "saved_images"
 os.makedirs(IMAGE_DIR, exist_ok=True)
-LOCATIONS = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
+
+# WBGT用の観測地点（従来通り）
+LOCATIONS_WBGT = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
+
+# 天候・地面温度用の観測地点（ご要望の5箇所）
+LOCATIONS_ENV = ["正門付近", "東門付近", "グラウンド", "南館屋上", "建学の庭付近"]
+
 WEATHERS = ["晴れ ☀️", "曇り ☁️", "雨 🌧️", "室内 🏢"]
 WINDS = ["なし 🍃", "弱風 🌬️", "強風 💨"]
 
-# 24時間（86400秒）データを保持するメモリ空間
+# データを保持するメモリ空間
 @st.cache_resource(ttl=86400)
 def get_secure_database():
-    return {"df": pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "判定", "画像", "空画像"])}
+    return {"df": pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])}
 
 db_container = get_secure_database()
 
-# ファイルとしてのバックアップ準備
+# CSVファイルバックアップ準備
 DB_FILE = "wbgt_data.csv"
 if not os.path.exists(DB_FILE):
-    df_init = pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "判定", "画像", "空画像"])
+    df_init = pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])
     df_init.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
 else:
     try:
         file_df = pd.read_csv(DB_FILE, encoding="utf-8-sig")
+        # 既存CSVに「表面温度」列がない場合の補正
+        if "表面温度" not in file_df.columns:
+            file_df["表面温度"] = "-"
         if not file_df.empty and db_container["df"].empty:
             db_container["df"] = file_df
     except:
         pass
 
-# 熱中症判定のルール（33℃以上の紫を含めた5段階）
+# 熱中症判定のルール（5段階）
 def judge_wbgt(val):
     if val >= 33: return "🟣 危険（熱中症警戒アラート）", "#800080"
     elif val >= 31: return "🔴 危険", "#FF4B4B"
@@ -58,24 +67,23 @@ def save_uploaded_image(file_obj, prefix, dt_str, loc_str):
             f.write(file_obj.getbuffer())
     return filename
 
-st.title("🌡️ 校内WBGT観測システム")
-st.caption("手入力 ＋ W写真保存（機器・空）＋ 天候観測モード")
+st.title("🌡️ 校内WBGT・環境観測システム")
+st.caption("WBGT数値データ ＋ 天候・地面表面温度・空写真管理")
 
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
 
 # ==========================================
-# タブ1: 新規登録（小タブで分帳）
+# タブ1: 新規登録（小タブ分割）
 # ==========================================
 with tab1:
     st.header("新規データの登録")
     
-    # 登録フォームをさらに2つのサブタブに分離
-    sub_tab_a, sub_tab_b = st.tabs(["🌡️ WBGT・測定値登録", "🌤️ 天候・空写真登録"])
+    sub_tab_a, sub_tab_b = st.tabs(["🌡️ WBGT・測定値登録", "🌤️ 天候・表面温度・空写真登録"])
     
-    # --- サブタブA: 測定値の入力 ---
+    # --- サブタブA: WBGT・数値測定値の入力 ---
     with sub_tab_a:
-        st.subheader("1. 測定値の入力")
-        loc_a = st.selectbox("観測地点を選択", LOCATIONS, key="loc_a")
+        st.subheader("1. WBGT・気象数値の入力")
+        loc_a = st.selectbox("観測地点を選択", LOCATIONS_WBGT, key="loc_a")
         
         c_date_a, c_time_a = st.columns(2)
         with c_date_a:
@@ -107,20 +115,19 @@ with tab1:
             dt_stamp = f"{date_a.strftime('%Y%m%d')}_{time_part_a.replace(':', '')}"
             img_name = save_uploaded_image(uploaded_main_a, "main", dt_stamp, loc_a)
             
-            new_row = pd.DataFrame([[dt_str_a, loc_a, "-", "-", wbgt_a, ta_a, rh_a, judgment, img_name, "-"]], 
-                                   columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "判定", "画像", "空画像"])
+            new_row = pd.DataFrame([[dt_str_a, loc_a, "-", "-", wbgt_a, ta_a, rh_a, "-", judgment, img_name, "-"]], 
+                                   columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])
             
             db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
             db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
             st.success(f"【登録完了】 {loc_a} の測定データを保存しました！")
             st.rerun()
 
-    # --- サブタブB: 天候・空写真の登録 ---
+    # --- サブタブB: 天候・表面温度・空写真の登録 ---
     with sub_tab_b:
-        st.subheader("2. 天候・環境データの入力")
-        st.info("※事前に測定値を登録していなくても、天候データ単体（または最新データへの追記）として保存できます。")
+        st.subheader("2. 天候・地面の表面温度データの入力")
         
-        loc_b = st.selectbox("観測地点を選択", LOCATIONS, key="loc_b")
+        loc_b = st.selectbox("観測地点を選択", LOCATIONS_ENV, key="loc_b")
         
         c_date_b, c_time_b = st.columns(2)
         with c_date_b:
@@ -137,9 +144,11 @@ with tab1:
         st.write("---")
         weather_b = st.selectbox("天候を選択", WEATHERS, key="weather_b")
         wind_b = st.selectbox("風の有無を選択", WINDS, key="wind_b")
+        surface_temp_b = st.number_input("地面の表面温度 (℃)", value=30.0, step=0.1, format="%.1f", key="surface_temp_b")
+        
         uploaded_sky_b = st.file_uploader("🌤️ 空の写真（任意）", type=["jpg", "jpeg", "png"], key="sky_b")
         
-        if st.button("天候データを登録・更新する", type="primary", key="btn_b"):
+        if st.button("天候・表面温度データを登録する", type="primary", key="btn_b"):
             try:
                 datetime.strptime(dt_str_b, "%Y-%m-%d %H:%M:%S")
             except ValueError:
@@ -150,23 +159,23 @@ with tab1:
             sky_img_name = save_uploaded_image(uploaded_sky_b, "sky", dt_stamp, loc_b)
             
             df = db_container["df"]
-            # 同一地点かつ同一日時のデータがあれば更新、なければ新規作成
             match_mask = (df["地点"] == loc_b) & (df["日時"] == dt_str_b)
             
             if not df[match_mask].empty:
-                # 既存データに天候・風・空写真を上書き追加
+                # 既存データがあれば更新
                 idx = df[match_mask].index[-1]
                 db_container["df"].loc[idx, "天候"] = weather_b
                 db_container["df"].loc[idx, "風"] = wind_b
+                db_container["df"].loc[idx, "表面温度"] = surface_temp_b
                 if sky_img_name != "-":
                     db_container["df"].loc[idx, "空画像"] = sky_img_name
-                st.success(f"【更新完了】 {loc_b} ({dt_str_b}) の天候情報を紐付けました！")
+                st.success(f"【更新完了】 {loc_b} ({dt_str_b}) の天候・表面温度情報を更新しました！")
             else:
-                # 単体として新規追加
-                new_row = pd.DataFrame([[dt_str_b, loc_b, weather_b, wind_b, 0.0, 0.0, 0.0, "データなし", "-", sky_img_name]], 
-                                       columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "判定", "画像", "空画像"])
+                # 新規追加
+                new_row = pd.DataFrame([[dt_str_b, loc_b, weather_b, wind_b, 0.0, 0.0, 0.0, surface_temp_b, "データなし", "-", sky_img_name]], 
+                                       columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])
                 db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
-                st.success(f"【登録完了】 {loc_b} の天候データを新規保存しました！")
+                st.success(f"【登録完了】 {loc_b} の天候・表面温度データを保存しました！")
                 
             db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
             st.rerun()
@@ -177,9 +186,11 @@ with tab1:
 with tab2:
     st.header("📋 校内各地点の最新状況")
     
+    # 全表示対象地点（WBGT用＋天候用の全地点を重複なく結合）
+    ALL_LOCATIONS = list(dict.fromkeys(LOCATIONS_WBGT + LOCATIONS_ENV))
     df = db_container["df"]
     
-    for loc in LOCATIONS:
+    for loc in ALL_LOCATIONS:
         loc_df = df[df["地点"] == loc]
         
         with st.container():
@@ -190,13 +201,19 @@ with tab2:
                 
                 weather_val = latest_row["天候"] if "天候" in latest_row and pd.notna(latest_row["天候"]) else "-"
                 wind_val = latest_row["風"] if "風" in latest_row and pd.notna(latest_row["風"]) else "-"
+                surf_val = latest_row["表面温度"] if "表面温度" in latest_row and pd.notna(latest_row["表面温度"]) else "-"
                 img_file = latest_row["画像"] if "画像" in latest_row else "-"
                 sky_img_file = latest_row["空画像"] if "空画像" in latest_row else "-"
                 
                 raw_dt_str = str(latest_row['日時'])
                 formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
                 
-                _, color = judge_wbgt(wbgt_val) if wbgt_val > 0 else ("データなし", "#BDC3C7")
+                _, color = judge_wbgt(wbgt_val) if (isinstance(wbgt_val, (int, float)) and wbgt_val > 0) else ("情報登録あり", "#2ECC71")
+                
+                wbgt_disp = f"{wbgt_val:.1f}℃" if isinstance(wbgt_val, (int, float)) and wbgt_val > 0 else "-"
+                ta_disp = f"{latest_row['気温']:.1f}℃" if isinstance(latest_row['気温'], (int, float)) and latest_row['気温'] > 0 else "-"
+                rh_disp = f"{latest_row['湿度']:.1f}%" if isinstance(latest_row['湿度'], (int, float)) and latest_row['湿度'] > 0 else "-"
+                surf_disp = f"{surf_val:.1f}℃" if isinstance(surf_val, (int, float)) else f"{surf_val}"
                 
                 st.markdown(
                     f"""
@@ -206,9 +223,10 @@ with tab2:
                             <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">{judgment_text}</span>
                         </div>
                         <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 0.85rem; color: #444;">
-                            <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold;">{wbgt_val:.1f}℃</span></span>
-                            <span><b>気温:</b> {latest_row['気温']:.1f}℃</span>
-                            <span><b>湿度:</b> {latest_row['湿度']:.1f}%</span>
+                            <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold;">{wbgt_disp}</span></span>
+                            <span><b>気温:</b> {ta_disp}</span>
+                            <span><b>湿度:</b> {rh_disp}</span>
+                            <span><b>地面表面温度:</b> <span style="color:#D35400; font-weight:bold;">{surf_disp}</span></span>
                         </div>
                         <div style="display: flex; gap: 12px; margin-top: 4px; font-size: 0.8rem; color: #666;">
                             <span><b>天候:</b> {weather_val}</span>
