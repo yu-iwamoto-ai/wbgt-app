@@ -16,28 +16,28 @@ os.makedirs(IMAGE_DIR, exist_ok=True)
 LOCATIONS_WBGT = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
 LOCATIONS_ENV = ["校内全体（全地点共通）", "正門付近", "東門付近", "グラウンド", "南館屋上", "建学の庭付近"]
 
-# 天候反映を認める地点（「東門付近」と「エントランス/正門付近」のみ）
-REFLECT_WEATHER_LOCATIONS = ["東門付近", "エントランス", "正門付近"]
-
-# 「エントランス」と「正門付近」の紐付け定義
+# 「エントランス」と「正門付近」の同義関係定義
 LOCATION_MAPPING = {
     "エントランス": "正門付近",
     "正門付近": "エントランス"
 }
+
+# 相互参照（天候紐付け）を行う特定2地点のリスト
+REFLECT_WEATHER_LOCATIONS = ["東門付近", "エントランス", "正門付近"]
 
 WEATHERS = ["晴れ ☀️", "曇り ☁️", "雨 🌧️", "室内 🏢"]
 WINDS = ["なし 🍃", "弱風 🌬️", "強風 💨"]
 
 REQUIRED_COLUMNS = ["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"]
 
-# データフレームのカラムを補正する関数
+# データフレームのカラム補正関数
 def ensure_columns(df):
     for col in REQUIRED_COLUMNS:
         if col not in df.columns:
             df[col] = "-"
     return df[REQUIRED_COLUMNS]
 
-# データを保持するメモリ空間
+# メモリ空間の保持
 @st.cache_resource(ttl=86400)
 def get_secure_database():
     return {"df": pd.DataFrame(columns=REQUIRED_COLUMNS)}
@@ -136,26 +136,23 @@ with tab1:
             dt_stamp = f"{date_a.strftime('%Y%m%d')}_{time_part_a.replace(':', '')}"
             img_name = save_uploaded_image(uploaded_main_a, "main", dt_stamp, loc_a)
             
+            # 完全な同日・同時刻・同地点のみ上書き、時刻が異なれば新規行として追加
             df = db_container["df"]
-            mapped_loc = LOCATION_MAPPING.get(loc_a, None)
-            
-            match_mask = (df["日時"] == dt_str_a) & ((df["地点"] == loc_a) | (df["地点"] == mapped_loc))
+            match_mask = (df["日時"] == dt_str_a) & (df["地点"] == loc_a)
             
             if not df[match_mask].empty:
                 idx = df[match_mask].index[-1]
-                db_container["df"].loc[idx, "地点"] = loc_a
                 db_container["df"].loc[idx, "WBGT"] = wbgt_a
                 db_container["df"].loc[idx, "気温"] = ta_a
                 db_container["df"].loc[idx, "湿度"] = rh_a
                 db_container["df"].loc[idx, "判定"] = judgment
-                if img_name != "-":
-                    db_container["df"].loc[idx, "画像"] = img_name
-                st.success(f"【更新完了】 {loc_a} ({dt_str_a}) の測定データを更新・紐付けました！")
+                if img_name != "-": db_container["df"].loc[idx, "画像"] = img_name
+                st.success(f"【更新完了】 {loc_a} ({dt_str_a}) の測定データを更新しました！")
             else:
                 new_row = pd.DataFrame([[dt_str_a, loc_a, "-", "-", wbgt_a, ta_a, rh_a, "-", judgment, img_name, "-", "-"]], 
                                        columns=REQUIRED_COLUMNS)
                 db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
-                st.success(f"【登録完了】 {loc_a} の測定データを保存しました！")
+                st.success(f"【登録完了】 {loc_a} ({dt_str_a}) の測定データを保存しました！")
                 
             db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
             st.rerun()
@@ -199,10 +196,9 @@ with tab1:
             sky_img_name = save_uploaded_image(uploaded_sky_b, "sky", dt_stamp, loc_b)
             surf_img_name = save_uploaded_image(uploaded_surf_b, "surf", dt_stamp, loc_b)
             
+            # 完全な同日・同時刻・同地点のみ上書き、時刻が異なれば新規行として追加
             df = db_container["df"]
-            mapped_loc = LOCATION_MAPPING.get(loc_b, None)
-            
-            match_mask = (df["日時"] == dt_str_b) & ((df["地点"] == loc_b) | (df["地点"] == mapped_loc))
+            match_mask = (df["日時"] == dt_str_b) & (df["地点"] == loc_b)
             
             if not df[match_mask].empty:
                 idx = df[match_mask].index[-1]
@@ -211,12 +207,12 @@ with tab1:
                 db_container["df"].loc[idx, "表面温度"] = surface_temp_b
                 if sky_img_name != "-": db_container["df"].loc[idx, "空画像"] = sky_img_name
                 if surf_img_name != "-": db_container["df"].loc[idx, "表面画像"] = surf_img_name
-                st.success(f"【更新完了】 {loc_b} ({dt_str_b}) の天候情報を更新・紐付けました！")
+                st.success(f"【更新完了】 {loc_b} ({dt_str_b}) の天候情報を更新しました！")
             else:
                 new_row = pd.DataFrame([[dt_str_b, loc_b, weather_b, wind_b, 0.0, 0.0, 0.0, surface_temp_b, "データなし", "-", sky_img_name, surf_img_name]], 
                                        columns=REQUIRED_COLUMNS)
                 db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
-                st.success(f"【登録完了】 {loc_b} の天候・表面温度データを保存しました！")
+                st.success(f"【登録完了】 {loc_b} ({dt_str_b}) の天候・表面温度データを保存しました！")
                 
             db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
             st.rerun()
@@ -232,7 +228,7 @@ with tab2:
 
     # --- サブタブ1: WBGT最新一覧 ---
     with view_tab_a:
-        # 校内全体の空写真があるか確認
+        # 校内全体の空写真確認
         common_df = df[df["地点"] == "校内全体（全地点共通）"]
         common_sky_img = None
         common_weather_str = "-"
@@ -245,7 +241,7 @@ with tab2:
             if pd.notna(sky_f) and sky_f != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_f))):
                 common_sky_img = os.path.join(IMAGE_DIR, str(sky_f))
 
-        # 「校内全体の天候登録」がある場合はトップに写真を1枚表示
+        # 校内全体の天候登録があれば一番上に1枚表示
         if common_sky_img:
             st.subheader("🌤️ 校内全体の最新の空模様")
             st.image(common_sky_img, caption=f"校内全体の空（天候: {common_weather_str} / 風: {common_wind_str}）", use_container_width=True)
@@ -254,46 +250,56 @@ with tab2:
         st.subheader("地点別 WBGT最新測定値")
 
         for idx, loc in enumerate(LOCATIONS_WBGT):
+            # 対象地点（および同義地点）のデータ抽出
             mapped_target = LOCATION_MAPPING.get(loc, None)
             loc_df = df[(df["地点"] == loc) | (df["地点"] == mapped_target)] if mapped_target else df[df["地点"] == loc]
             
+            # WBGT数値がある最新レコードを取得
+            wbgt_records = loc_df[loc_df["WBGT"] > 0]
+            
+            # 天候数値がある最新レコードを取得
+            weather_records = loc_df[(loc_df["天候"].notna()) & (loc_df["天候"] != "-")]
+            
             with st.container():
-                if not loc_df.empty:
-                    latest_row = loc_df.iloc[-1]
-                    judgment_text = latest_row.get("判定", "データなし")
-                    wbgt_val = latest_row.get("WBGT", 0)
+                if not wbgt_records.empty or not weather_records.empty:
+                    # WBGTの最新情報
+                    latest_wbgt_row = wbgt_records.iloc[-1] if not wbgt_records.empty else (loc_df.iloc[-1] if not loc_df.empty else None)
                     
-                    cur_weather = latest_row.get("天候", "-")
-                    cur_wind = latest_row.get("風", "-")
-
-                    # 「東門付近」と「エントランス」のみ、個別天候がなければ校内全体天候を反映
-                    if loc in REFLECT_WEATHER_LOCATIONS:
-                        weather_val = cur_weather if pd.notna(cur_weather) and cur_weather != "-" else common_weather_str
-                        wind_val = cur_wind if pd.notna(cur_wind) and cur_wind != "-" else common_wind_str
-                    else:
-                        weather_val = cur_weather if pd.notna(cur_weather) and cur_weather != "-" else "-"
-                        wind_val = cur_wind if pd.notna(cur_wind) and cur_wind != "-" else "-"
+                    wbgt_val = latest_wbgt_row.get("WBGT", 0) if latest_wbgt_row is not None else 0
+                    judgment_text = latest_wbgt_row.get("判定", "データなし") if latest_wbgt_row is not None else "データなし"
+                    ta_val = latest_wbgt_row.get("気温", 0) if latest_wbgt_row is not None else 0
+                    rh_val = latest_wbgt_row.get("湿度", 0) if latest_wbgt_row is not None else 0
+                    img_file = latest_wbgt_row.get("画像", "-") if latest_wbgt_row is not None else "-"
+                    wbgt_dt_str = str(latest_wbgt_row.get("日時", "")) if latest_wbgt_row is not None else ""
                     
-                    img_file = latest_row.get("画像", "-")
-                    sky_img_file = latest_row.get("空画像", "-")
+                    # 天候の最新情報（特定2地点なら個別天候データから優先抽出）
+                    weather_val = "-"
+                    wind_val = "-"
+                    sky_img_file = "-"
+                    surf_img_file = "-"
                     
-                    if (not pd.notna(sky_img_file) or sky_img_file == "-") and (loc in REFLECT_WEATHER_LOCATIONS) and not common_df.empty:
-                        sky_img_file = common_df.iloc[-1].get("空画像", "-")
+                    if not weather_records.empty:
+                        latest_weather_row = weather_records.iloc[-1]
+                        weather_val = latest_weather_row.get("天候", "-")
+                        wind_val = latest_weather_row.get("風", "-")
+                        sky_img_file = latest_weather_row.get("空画像", "-")
+                        surf_img_file = latest_weather_row.get("表面画像", "-")
+                    elif loc in REFLECT_WEATHER_LOCATIONS:
+                        # 個別設定がなく校内全体設定があれば補完
+                        weather_val = common_weather_str
+                        wind_val = common_wind_str
+                        if not common_df.empty:
+                            sky_img_file = common_df.iloc[-1].get("空画像", "-")
 
-                    surf_img_file = latest_row.get("表面画像", "-")
-
-                    raw_dt_str = str(latest_row.get("日時", ""))
-                    formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
+                    # 日時の表示整形
+                    disp_dt = wbgt_dt_str[5:16].replace('-', '/') if len(wbgt_dt_str) >= 16 else wbgt_dt_str
                     
                     _, color = judge_wbgt(wbgt_val) if (isinstance(wbgt_val, (int, float)) and wbgt_val > 0) else ("データなし", "#BDC3C7")
                     
                     wbgt_disp = f"{wbgt_val:.1f}℃" if isinstance(wbgt_val, (int, float)) and wbgt_val > 0 else "-"
-                    ta_val = latest_row.get("気温", 0)
-                    rh_val = latest_row.get("湿度", 0)
                     ta_disp = f"{ta_val:.1f}℃" if isinstance(ta_val, (int, float)) and ta_val > 0 else "-"
                     rh_disp = f"{rh_val:.1f}%" if isinstance(rh_val, (int, float)) and rh_val > 0 else "-"
                     
-                    # 画面上にはテキスト・カードのみを表示
                     st.markdown(
                         f"""
                         <div style="border-left: 6px solid {color}; padding: 10px 14px; background-color: #f8f9fa; border-radius: 6px; box-shadow: 1px 1px 3px rgba(0,0,0,0.05); margin-bottom: 6px;">
@@ -307,18 +313,19 @@ with tab2:
                                 <span><b>湿度:</b> {rh_disp}</span>
                                 <span><b>天候:</b> {weather_val}</span>
                                 <span><b>風:</b> {wind_val}</span>
-                                <span style="margin-left: auto; color: #888; font-weight: bold; font-size: 0.8rem;">📅 {formatted_dt_str}</span>
+                                <span style="margin-left: auto; color: #888; font-weight: bold; font-size: 0.8rem;">📅 最終測定: {disp_dt}</span>
                             </div>
                         </div>
                         """,
                         unsafe_allow_html=True
                     )
                     
+                    # 各種写真の存在判定
                     has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_img_file)))
                     has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
                     has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
                     
-                    # 写真確認用のボタン（押すとモーダルで表示）
+                    # 各写真モーダル表示ボタン
                     btn_cols = st.columns([1, 1, 1, 2])
                     if has_sky:
                         with btn_cols[0]:
@@ -354,9 +361,12 @@ with tab2:
             mapped_target = LOCATION_MAPPING.get(loc, None)
             loc_df = df[(df["地点"] == loc) | (df["地点"] == mapped_target)] if mapped_target else df[df["地点"] == loc]
             
+            # 天候データの存在する最新レコード
+            weather_records = loc_df[(loc_df["天候"].notna()) & (loc_df["天候"] != "-")]
+            
             with st.container():
-                if not loc_df.empty:
-                    latest_row = loc_df.iloc[-1]
+                if not weather_records.empty:
+                    latest_row = weather_records.iloc[-1]
                     weather_val = latest_row.get("天候", "-")
                     wind_val = latest_row.get("風", "-")
                     surf_val = latest_row.get("表面温度", "-")
