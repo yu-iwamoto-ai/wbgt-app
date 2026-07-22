@@ -81,8 +81,8 @@ def save_uploaded_image(file_obj, prefix, dt_str, loc_str):
     return filename
 
 # 画像ポップアップ（モーダル）表示用関数
-@st.dialog("🖼️ 写真の拡大表示")
-def show_image_modal(image_path, title="拡大写真"):
+@st.dialog("🖼️ 写真の表示")
+def show_image_modal(image_path, title="写真"):
     st.image(image_path, caption=title, use_container_width=True)
 
 st.title("🌡️ 校内WBGT・環境観測システム")
@@ -224,7 +224,7 @@ with tab1:
 with tab2:
     st.header("📋 校内各地点の最新状況")
     
-    view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況（写真押して拡大可）", "🌤️ 天候・表面温度最新状況"])
+    view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況", "🌤️ 天候・表面温度最新状況"])
     df = db_container["df"]
 
     def get_latest_common_weather():
@@ -236,9 +236,9 @@ with tab2:
         valid_weather_df = df[df["天候"].notna() & (df["天候"] != "-")]
         return valid_weather_df.iloc[-1] if not valid_weather_df.empty else None
 
-    # --- サブタブ1: WBGT最新一覧（押して拡大可能） ---
+    # --- サブタブ1: WBGT最新一覧（ボタンを押してポップアップ表示） ---
     with view_tab_a:
-        st.subheader("校内WBGT測定値 ＆ 空の同時表示（押して拡大）")
+        st.subheader("校内WBGT測定値の最新情報")
         common_weather_row = get_latest_common_weather()
 
         for idx, loc in enumerate(LOCATIONS_WBGT):
@@ -276,64 +276,47 @@ with tab2:
                     ta_disp = f"{ta_val:.1f}℃" if isinstance(ta_val, (int, float)) and ta_val > 0 else "-"
                     rh_disp = f"{rh_val:.1f}%" if isinstance(rh_val, (int, float)) and rh_val > 0 else "-"
                     
-                    c_info, c_photo = st.columns([2, 1])
-                    
-                    with c_info:
-                        st.markdown(
-                            f"""
-                            <div style="border-left: 6px solid {color}; padding: 10px 14px; background-color: #f8f9fa; border-radius: 6px; box-shadow: 1px 1px 3px rgba(0,0,0,0.08); min-height: 110px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-size: 1.05rem; font-weight: bold; color: #333;">📍 {loc}</span>
-                                    <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.8rem;">{judgment_text}</span>
-                                </div>
-                                <div style="display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 8px; font-size: 0.88rem; color: #333;">
-                                    <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold; font-size:1.1rem;">{wbgt_disp}</span></span>
-                                    <span><b>気温:</b> {ta_disp}</span>
-                                    <span><b>湿度:</b> {rh_disp}</span>
-                                    <span><b>天候:</b> {weather_val}</span>
-                                    <span><b>風:</b> {wind_val}</span>
-                                </div>
-                                <div style="text-align: right; margin-top: 4px; color: #888; font-weight: bold; font-size: 0.75rem;">📅 {formatted_dt_str}</div>
+                    # 通常画面はスッキリカード形式
+                    st.markdown(
+                        f"""
+                        <div style="border-left: 6px solid {color}; padding: 10px 14px; background-color: #f8f9fa; border-radius: 6px; box-shadow: 1px 1px 3px rgba(0,0,0,0.05); margin-bottom: 6px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 1.05rem; font-weight: bold; color: #333;">📍 {loc}</span>
+                                <span style="background-color: {color}; color: white; padding: 2px 10px; border-radius: 50px; font-weight: bold; font-size: 0.88rem;">{judgment_text}</span>
                             </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
+                            <div style="display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 8px; font-size: 0.9rem; color: #333;">
+                                <span><b>WBGT:</b> <span style="color:{color}; font-weight:bold; font-size:1.1rem;">{wbgt_disp}</span></span>
+                                <span><b>気温:</b> {ta_disp}</span>
+                                <span><b>湿度:</b> {rh_disp}</span>
+                                <span><b>天候:</b> {weather_val}</span>
+                                <span><b>風:</b> {wind_val}</span>
+                                <span style="margin-left: auto; color: #888; font-weight: bold; font-size: 0.8rem;">📅 {formatted_dt_str}</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
                     
                     has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_img_file)))
                     has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
-                    
-                    with c_photo:
-                        if has_sky:
-                            sky_path = os.path.join(IMAGE_DIR, str(sky_img_file))
-                            st.image(sky_path, caption="🌤️ 空の状況", use_container_width=True)
-                            if st.button("🔍 拡大", key=f"btn_zoom_sky_{idx}"):
-                                show_image_modal(sky_path, f"{loc} - 空の写真")
-                        elif has_main:
-                            main_path = os.path.join(IMAGE_DIR, str(img_file))
-                            st.image(main_path, caption="📷 機器写真", use_container_width=True)
-                            if st.button("🔍 拡大", key=f"btn_zoom_main_{idx}"):
-                                show_image_modal(main_path, f"{loc} - 測定機器")
-                        else:
-                            st.info("🖼️ 写真なし")
-                    
                     has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
-                    if (has_sky and has_main) or has_surf:
-                        with st.expander("🔍 その他の写真を表示（機器・表面温度など）"):
-                            sub_cols = st.columns(3)
-                            if has_main and has_sky:
-                                with sub_cols[0]: 
-                                    main_p = os.path.join(IMAGE_DIR, str(img_file))
-                                    st.image(main_p, caption="機器写真", use_container_width=True)
-                                    if st.button("拡大", key=f"btn_sub_main_{idx}"):
-                                        show_image_modal(main_p, f"{loc} - 測定機器")
-                            if has_surf:
-                                with sub_cols[1]: 
-                                    surf_p = os.path.join(IMAGE_DIR, str(surf_img_file))
-                                    st.image(surf_p, caption="表面温度写真", use_container_width=True)
-                                    if st.button("拡大", key=f"btn_sub_surf_{idx}"):
-                                        show_image_modal(surf_p, f"{loc} - 表面温度")
+                    
+                    # 画像を見るためのボタン群（押すとポップアップ画面が出ます）
+                    btn_cols = st.columns([1, 1, 1, 2])
+                    if has_sky:
+                        with btn_cols[0]:
+                            if st.button("🌤️ 空の写真を見る", key=f"btn_modal_sky_{idx}"):
+                                show_image_modal(os.path.join(IMAGE_DIR, str(sky_img_file)), f"{loc} - 空の様子")
+                    if has_main:
+                        with btn_cols[1]:
+                            if st.button("📷 機器写真を見る", key=f"btn_modal_main_{idx}"):
+                                show_image_modal(os.path.join(IMAGE_DIR, str(img_file)), f"{loc} - 測定機器")
+                    if has_surf:
+                        with btn_cols[2]:
+                            if st.button("🌡️ 表面温度写真", key=f"btn_modal_surf_{idx}"):
+                                show_image_modal(os.path.join(IMAGE_DIR, str(surf_img_file)), f"{loc} - 地面表面温度")
 
-                    st.write("---")
+                    st.write("")
                 else:
                     st.markdown(
                         f"""
@@ -387,20 +370,15 @@ with tab2:
                     has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(sky_img_file)))
                     has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(surf_img_file)))
                     
-                    if has_sky or has_surf:
-                        cols = st.columns(2)
-                        if has_sky:
-                            with cols[0]:
-                                sky_p = os.path.join(IMAGE_DIR, str(sky_img_file))
-                                st.image(sky_p, caption=f"{loc} の空", use_container_width=True)
-                                if st.button("🔍 拡大表示", key=f"btn_env_sky_{idx}"):
-                                    show_image_modal(sky_p, f"{loc} - 空の写真")
-                        if has_surf:
-                            with cols[1]:
-                                surf_p = os.path.join(IMAGE_DIR, str(surf_img_file))
-                                st.image(surf_p, caption=f"{loc} の表面温度", use_container_width=True)
-                                if st.button("🔍 拡大表示", key=f"btn_env_surf_{idx}"):
-                                    show_image_modal(surf_p, f"{loc} - 表面温度")
+                    btn_cols_env = st.columns([1, 1, 2])
+                    if has_sky:
+                        with btn_cols_env[0]:
+                            if st.button("🌤️ 空の写真を見る", key=f"btn_env_modal_sky_{idx}"):
+                                show_image_modal(os.path.join(IMAGE_DIR, str(sky_img_file)), f"{loc} - 空の様子")
+                    if has_surf:
+                        with btn_cols_env[1]:
+                            if st.button("🌡️ 表面温度写真を見る", key=f"btn_env_modal_surf_{idx}"):
+                                show_image_modal(os.path.join(IMAGE_DIR, str(surf_img_file)), f"{loc} - 表面温度")
                     st.write("")
                 else:
                     st.markdown(
