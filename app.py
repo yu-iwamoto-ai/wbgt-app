@@ -18,7 +18,7 @@ PREFECTURES = [
     "東京都", "神奈川県", "埼玉県", "千葉県", "大阪府", "兵庫県", "京都府", "愛知県",
     "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県",
     "栃木県", "群馬県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
-    "岐阜県", "静岡県", "三重県", "滋賀県", "兵庫県", "奈良県", "和歌山県", "鳥取県",
+    "岐阜県", "静岡県", "三重県", "滋賀県", "奈良県", "和歌山県", "鳥取県",
     "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県",
     "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
 ]
@@ -71,17 +71,35 @@ else:
 
 db_container["df"] = ensure_columns(db_container["df"])
 
-# 熱中症警戒アラートの自動取得関数（環境省WBGT情報）
-def check_heat_alert(pref_name):
-    try:
-        # 環境省・気象庁アラート配信サイトからデータ取得を試行
-        url = "https://www.wbgt.env.go.jp/sp/data/xml/alert_info.xml"
-        res = requests.get(url, timeout=3)
-        if res.status_code == 200 and pref_name in res.text:
-            return True
-    except Exception:
-        pass
-    return False
+# 熱中症警戒アラートの自動取得関数（強固版）
+@st.cache_data(ttl=1800) # 30分キャッシュ
+def check_heat_alert_status(pref_name):
+    clean_pref = pref_name.replace("県", "").replace("府", "").replace("都", "")
+    
+    # 環境省 / 気象庁アラートデータ取得（マルチフォールバック）
+    urls = [
+        "https://www.wbgt.env.go.jp/sp/data/xml/alert_info.xml",
+        "https://www.wbgt.env.go.jp/prev157/data/alert_info.xml"
+    ]
+    
+    status_msg = "取得未実行"
+    is_alert = False
+    
+    for url in urls:
+        try:
+            res = requests.get(url, timeout=4)
+            if res.status_code == 200:
+                content = res.text
+                if clean_pref in content or pref_name in content:
+                    is_alert = True
+                    status_msg = f"【発令中】データ内に{pref_name}を確認しました"
+                else:
+                    status_msg = f"【正常通信】現在{pref_name}に発令データはありません"
+                break
+        except Exception as e:
+            status_msg = f"通信エラー: {e}"
+            
+    return is_alert, status_msg
 
 # 熱中症判定のルール（5段階）
 def judge_wbgt(val):
@@ -112,15 +130,23 @@ def show_image_modal(image_path, title="写真"):
     st.image(image_path, caption=title, use_container_width=True)
 
 # ------------------------------------------
-# サイドバー設定
+# サイドバー設定 ＆ アラート状態診断
 # ------------------------------------------
 st.sidebar.header("⚙️ システム設定")
 selected_pref = st.sidebar.selectbox("学校の所在地域", PREFECTURES, index=PREFECTURES.index("兵庫県") if "兵庫県" in PREFECTURES else 0)
 
-# 自動取得判定
-auto_alert = check_heat_alert(selected_pref)
+# 自動取得処理実行
+auto_alert, alert_debug_msg = check_heat_alert_status(selected_pref)
 
-# 手動強制表示スイッチ（テスト・緊急用）
+# サイドバーに自動取得の診断結果を表示（デバッグ・安心用）
+with st.sidebar.expander("📡 アラート自動取得の接続状態", expanded=False):
+    st.caption(f"判定結果: **{'⚠️ 発令あり' if auto_alert else '🟢 発令なし/平常'}**")
+    st.caption(f"詳細情報: {alert_debug_msg}")
+    if st.button("最新状態に更新（再取得）"):
+        st.cache_data.clear()
+        st.rerun()
+
+# 手動強制表示スイッチ（テスト・緊急時用）
 manual_alert = st.sidebar.checkbox("熱中症警戒アラートをテスト表示（強制表示）", value=False)
 
 is_alert_active = auto_alert or manual_alert
