@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import datetime
 import requests
-from bs4 import BeautifulSoup
 
 # --- ページ設定 ---
 st.set_page_config(page_title="環境観測システム", layout="wide")
@@ -22,21 +21,22 @@ selected_pref = st.sidebar.selectbox(
     index=0
 )
 
-# --- 環境省アラート自動取得機能 ---
+# --- アラート自動取得機能（bs4不使用・HTML直接判定） ---
 def check_heat_alert(pref_name):
-    """環境省の熱中症警戒アラート発表状況を取得"""
+    """環境省のアラートページから直接判定"""
     clean_pref = pref_name.replace("県", "").replace("府", "").replace("都", "").replace("道", "")
-    url = "https://www.wbgt.env.go.jp/alert.php"
+    url = "https://www.wbgt.env.go.jp/sp/alert.php"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
     try:
-        response = requests.get(url, timeout=5)
-        response.encoding = response.apparent_encoding
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # ページ全体または主要テキストから該当都道府県のアラート記述を検索
-            text_content = soup.get_text()
-            if clean_pref in text_content and "発表" in text_content:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            res.encoding = 'utf-8'
+            html = res.text
+            if clean_pref in html or pref_name in html:
                 return True
-    except Exception as e:
+    except Exception:
         pass
     return False
 
@@ -47,7 +47,7 @@ with st.sidebar.expander("📡 アラート自動取得の接続状態", expande
     if alert_active:
         st.warning(f"判定: ⚠️ 発令中\n\n通信状況: 【発令中】「{selected_pref}」のアラート発表を検出しました")
     else:
-        st.success(f"判定: 🟢 発表なし\n\n通信状況: 正常に「{selected_pref}」のアラート発表状況を取得しました")
+        st.success(f"判定: 🟢 発表なし/平常\n\n通信状況: 現在「{selected_pref}」にアラート発令なし")
     
     if st.button("最新データに再更新"):
         st.rerun()
@@ -78,8 +78,8 @@ with tab1:
         with col2:
             temp = st.number_input("気温 (℃)", min_value=-10.0, max_value=60.0, value=31.0, step=0.1)
             humidity = st.number_input("湿度 (%)", min_value=0, max_value=100, value=65)
-            # ★ 改良点：風の状況をこちらに移動
-            wind_status = st.selectbox("風の状況", ["無風", "弱風（ソヨソヨ）", "強風", "陣風"])
+            # 風の状況をこちらに配置
+            wind_status = st.selectbox("風の状況", ["なし 🍃", "弱風 🌬️", "強風 💨"])
             memo = st.text_input("備考・メモ", value="")
             
         submit_wbgt = st.form_submit_button("データを保存")
@@ -106,7 +106,6 @@ with tab2:
     with st.form("sky_photo_form"):
         col1, col2 = st.columns(2)
         with col1:
-            # ★ 改良点：地点は削除、日付と時刻のみ
             photo_date = st.date_input("撮影日付", datetime.date.today())
             photo_time = st.time_input("撮影時刻", datetime.datetime.now().time())
         
@@ -119,7 +118,7 @@ with tab2:
             if uploaded_file is not None:
                 st.session_state.sky_photo_records.append({
                     "日付": photo_date.strftime("%Y-%m-%d"),
-                    "時刻": photo_time.strftime("%H:%M"),  # ★ 改良点：時刻が入るように保持
+                    "時刻": photo_time.strftime("%H:%M"),
                     "画像データ": uploaded_file,
                     "メモ": photo_memo
                 })
@@ -128,7 +127,7 @@ with tab2:
                 st.warning("画像ファイルを選択してください。")
 
 # ---------------------------------------------------------
-# タブ 3: 観測データ一覧（WBGTデータ＆空の写真一覧）
+# タブ 3: 観測データ一覧
 # ---------------------------------------------------------
 with tab3:
     st.subheader("📋 記録データ一覧")
@@ -144,12 +143,11 @@ with tab3:
             
     with sub_tab2:
         if st.session_state.sky_photo_records:
-            # 一覧表形式での表示（時刻を含む）
             photo_table_data = []
             for item in st.session_state.sky_photo_records:
                 photo_table_data.append({
                     "日付": item["日付"],
-                    "時刻": item["時刻"],  # ★ 改良点：一覧表で時刻が入る
+                    "時刻": item["時刻"],
                     "メモ": item["メモ"]
                 })
             
@@ -159,10 +157,9 @@ with tab3:
             st.divider()
             st.markdown("##### 🖼️ ギャラリー表示")
             
-            # 画像をカード/ギャラリー風に並べて表示
             cols = st.columns(3)
             for idx, item in enumerate(st.session_state.sky_photo_records):
                 with cols[idx % 3]:
-                    st.image(item["画像データ"], caption=f"{item['日付']} {item['時刻']} - {item['メモ']}", use_column_width=True)
+                    st.image(item["画像データ"], caption=f"{item['日付']} {item['時刻']} - {item['メモ']}", use_container_width=True)
         else:
             st.info("登録された空の写真はまだありません。")
