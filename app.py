@@ -24,21 +24,23 @@ WINDS = ["なし 🍃", "弱風 🌬️", "強風 💨"]
 # データを保持するメモリ空間
 @st.cache_resource(ttl=86400)
 def get_secure_database():
-    return {"df": pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])}
+    return {"df": pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])}
 
 db_container = get_secure_database()
 
 # CSVファイルバックアップ準備
 DB_FILE = "wbgt_data.csv"
 if not os.path.exists(DB_FILE):
-    df_init = pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])
+    df_init = pd.DataFrame(columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])
     df_init.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
 else:
     try:
         file_df = pd.read_csv(DB_FILE, encoding="utf-8-sig")
-        # 既存CSVに「表面温度」列がない場合の補正
+        # 既存CSVに必要な列がない場合の補正
         if "表面温度" not in file_df.columns:
             file_df["表面温度"] = "-"
+        if "表面画像" not in file_df.columns:
+            file_df["表面画像"] = "-"
         if not file_df.empty and db_container["df"].empty:
             db_container["df"] = file_df
     except:
@@ -68,7 +70,7 @@ def save_uploaded_image(file_obj, prefix, dt_str, loc_str):
     return filename
 
 st.title("🌡️ 校内WBGT・環境観測システム")
-st.caption("WBGT数値データ ＋ 天候・地面表面温度・空写真管理")
+st.caption("WBGT数値データ ＋ 天候・地面表面温度・写真保存（機器・空・表面温度）")
 
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
 
@@ -78,7 +80,7 @@ tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "
 with tab1:
     st.header("新規データの登録")
     
-    sub_tab_a, sub_tab_b = st.tabs(["🌡️ WBGT・測定値登録", "🌤️ 天候・表面温度・空写真登録"])
+    sub_tab_a, sub_tab_b = st.tabs(["🌡️ WBGT・測定値登録", "🌤️ 天候・表面温度・写真登録"])
     
     # --- サブタブA: WBGT・数値測定値の入力 ---
     with sub_tab_a:
@@ -115,15 +117,15 @@ with tab1:
             dt_stamp = f"{date_a.strftime('%Y%m%d')}_{time_part_a.replace(':', '')}"
             img_name = save_uploaded_image(uploaded_main_a, "main", dt_stamp, loc_a)
             
-            new_row = pd.DataFrame([[dt_str_a, loc_a, "-", "-", wbgt_a, ta_a, rh_a, "-", judgment, img_name, "-"]], 
-                                   columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])
+            new_row = pd.DataFrame([[dt_str_a, loc_a, "-", "-", wbgt_a, ta_a, rh_a, "-", judgment, img_name, "-", "-"]], 
+                                   columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])
             
             db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
             db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
             st.success(f"【登録完了】 {loc_a} の測定データを保存しました！")
             st.rerun()
 
-    # --- サブタブB: 天候・表面温度・空写真の登録 ---
+    # --- サブタブB: 天候・表面温度・空写真・表面温度写真の登録 ---
     with sub_tab_b:
         st.subheader("2. 天候・地面の表面温度データの入力")
         
@@ -146,7 +148,11 @@ with tab1:
         wind_b = st.selectbox("風の有無を選択", WINDS, key="wind_b")
         surface_temp_b = st.number_input("地面の表面温度 (℃)", value=30.0, step=0.1, format="%.1f", key="surface_temp_b")
         
-        uploaded_sky_b = st.file_uploader("🌤️ 空の写真（任意）", type=["jpg", "jpeg", "png"], key="sky_b")
+        c_img_sky, c_img_surf = st.columns(2)
+        with c_img_sky:
+            uploaded_sky_b = st.file_uploader("🌤️ 空の写真（任意）", type=["jpg", "jpeg", "png"], key="sky_b")
+        with c_img_surf:
+            uploaded_surf_b = st.file_uploader("🌡️ 表面温度の写真（任意）", type=["jpg", "jpeg", "png"], key="surf_b")
         
         if st.button("天候・表面温度データを登録する", type="primary", key="btn_b"):
             try:
@@ -157,6 +163,7 @@ with tab1:
                 
             dt_stamp = f"{date_b.strftime('%Y%m%d')}_{time_part_b.replace(':', '')}"
             sky_img_name = save_uploaded_image(uploaded_sky_b, "sky", dt_stamp, loc_b)
+            surf_img_name = save_uploaded_image(uploaded_surf_b, "surf", dt_stamp, loc_b)
             
             df = db_container["df"]
             match_mask = (df["地点"] == loc_b) & (df["日時"] == dt_str_b)
@@ -169,11 +176,13 @@ with tab1:
                 db_container["df"].loc[idx, "表面温度"] = surface_temp_b
                 if sky_img_name != "-":
                     db_container["df"].loc[idx, "空画像"] = sky_img_name
+                if surf_img_name != "-":
+                    db_container["df"].loc[idx, "表面画像"] = surf_img_name
                 st.success(f"【更新完了】 {loc_b} ({dt_str_b}) の天候・表面温度情報を更新しました！")
             else:
                 # 新規追加
-                new_row = pd.DataFrame([[dt_str_b, loc_b, weather_b, wind_b, 0.0, 0.0, 0.0, surface_temp_b, "データなし", "-", sky_img_name]], 
-                                       columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像"])
+                new_row = pd.DataFrame([[dt_str_b, loc_b, weather_b, wind_b, 0.0, 0.0, 0.0, surface_temp_b, "データなし", "-", sky_img_name, surf_img_name]], 
+                                       columns=["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"])
                 db_container["df"] = pd.concat([db_container["df"], new_row], ignore_index=True)
                 st.success(f"【登録完了】 {loc_b} の天候・表面温度データを保存しました！")
                 
@@ -204,6 +213,7 @@ with tab2:
                 surf_val = latest_row["表面温度"] if "表面温度" in latest_row and pd.notna(latest_row["表面温度"]) else "-"
                 img_file = latest_row["画像"] if "画像" in latest_row else "-"
                 sky_img_file = latest_row["空画像"] if "空画像" in latest_row else "-"
+                surf_img_file = latest_row["表面画像"] if "表面画像" in latest_row else "-"
                 
                 raw_dt_str = str(latest_row['日時'])
                 formatted_dt_str = raw_dt_str[5:16].replace('-', '/') if len(raw_dt_str) >= 16 else raw_dt_str
@@ -241,17 +251,22 @@ with tab2:
                 # 写真ボタンの表示
                 has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, img_file))
                 has_sky = pd.notna(sky_img_file) and sky_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, sky_img_file))
+                has_surf = pd.notna(surf_img_file) and surf_img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, surf_img_file))
                 
-                if has_main or has_sky:
-                    c_btn1, c_btn2 = st.columns(2)
+                if has_main or has_sky or has_surf:
+                    cols = st.columns(3)
                     if has_main:
-                        with c_btn1:
+                        with cols[0]:
                             with st.expander("📸 機器の写真"):
                                 st.image(os.path.join(IMAGE_DIR, img_file), caption=f"{loc} の測定機器写真", use_container_width=True)
                     if has_sky:
-                        with c_btn2:
+                        with cols[1]:
                             with st.expander("🌤️ 空の写真"):
                                 st.image(os.path.join(IMAGE_DIR, sky_img_file), caption=f"{loc} の空の写真", use_container_width=True)
+                    if has_surf:
+                        with cols[2]:
+                            with st.expander("🌡️ 表面温度の写真"):
+                                st.image(os.path.join(IMAGE_DIR, surf_img_file), caption=f"{loc} の表面温度写真", use_container_width=True)
                 
                 st.write("")
             else:
