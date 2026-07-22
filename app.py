@@ -71,14 +71,16 @@ else:
 
 db_container["df"] = ensure_columns(db_container["df"])
 
-# 熱中症警戒アラートの自動取得関数（確実取得版）
+# 熱中症警戒アラートの自動取得関数（多重フォールバック取得版）
 def fetch_heat_alert(pref_name):
     clean_pref = pref_name.replace("県", "").replace("府", "").replace("都", "")
     
-    # 配信元URL
+    # 環境省 / 気象庁などの取得候補URLリスト
     urls = [
+        "https://www.wbgt.env.go.jp/data/xml/alert_info.xml",
         "https://www.wbgt.env.go.jp/sp/data/xml/alert_info.xml",
-        "https://www.wbgt.env.go.jp/prev157/data/alert_info.xml"
+        "https://www.wbgt.env.go.jp/prev157/data/alert_info.xml",
+        "https://www.wbgt.env.go.jp/alert_list.php"
     ]
     
     headers = {
@@ -92,7 +94,10 @@ def fetch_heat_alert(pref_name):
         try:
             res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
+                # 応答テキストのエンコーディング自動設定
+                res.encoding = res.apparent_encoding if res.apparent_encoding else 'utf-8'
                 content = res.text
+                
                 if clean_pref in content or pref_name in content:
                     is_alert = True
                     status_msg = f"【発令中】データ内に「{pref_name}」の発表を確認しました"
@@ -100,7 +105,7 @@ def fetch_heat_alert(pref_name):
                     status_msg = f"【正常通信】データ内に「{pref_name}」の該当なし"
                 break
             else:
-                status_msg = f"HTTPエラー: {res.status_code}"
+                status_msg = f"HTTPエラー ({res.status_code}): {url.split('/')[-1]}"
         except Exception as e:
             status_msg = f"通信例外: {e}"
             
@@ -140,7 +145,7 @@ def show_image_modal(image_path, title="写真"):
 st.sidebar.header("⚙️ システム設定")
 selected_pref = st.sidebar.selectbox("学校の所在地域", PREFECTURES, index=PREFECTURES.index("兵庫県") if "兵庫県" in PREFECTURES else 0)
 
-# アプリ起動時に必ず最新データを直接通信して取得
+# 最新データを直接通信して取得
 auto_alert, alert_debug_msg = fetch_heat_alert(selected_pref)
 
 # サイドバーに自動取得の診断結果を表示
@@ -422,9 +427,7 @@ with tab2:
                         unsafe_allow_html=True
                     )
 
-# ==========================================
-# タブ2: 天候・表面温度最新一覧
-# ==========================================
+    # --- サブタブ2: 天候・表面温度最新一覧 ---
     with view_tab_b:
         st.subheader("校内天候・地面表面温度の最新情報")
         for idx, loc in enumerate(LOCATIONS_ENV):
@@ -455,7 +458,7 @@ with tab2:
                             </div>
                             <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; font-size: 0.85rem; color: #444;">
                                 <span><b>天候:</b> {weather_val}</span>
-                                <span><b>風:</b> {wind_val}</span>
+                                <span><b>风:</b> {wind_val}</span>
                                 <span><b>地面表面温度:</b> <span style="color:#D35400; font-weight:bold;">{surf_disp}</span></span>
                             </div>
                         </div>
