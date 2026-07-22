@@ -2,6 +2,7 @@
 import streamlit as st
 import os
 import pandas as pd
+import requests
 from datetime import datetime, date
 from PIL import Image, ImageOps
 
@@ -11,6 +12,16 @@ st.set_page_config(page_title="校内WBGT観測システム", page_icon="🌡️
 # フォルダの設定
 IMAGE_DIR = "saved_images"
 os.makedirs(IMAGE_DIR, exist_ok=True)
+
+# 都道府県リスト
+PREFECTURES = [
+    "東京都", "神奈川県", "埼玉県", "千葉県", "大阪府", "兵庫県", "京都府", "愛知県",
+    "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県",
+    "栃木県", "群馬県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
+    "岐阜県", "静岡県", "三重県", "滋賀県", "兵庫県", "奈良県", "和歌山県", "鳥取県",
+    "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県",
+    "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
+]
 
 # 地点設定
 LOCATIONS_WBGT = ["講堂", "柏倫館", "エントランス", "東門付近", "西館3F"]
@@ -60,6 +71,18 @@ else:
 
 db_container["df"] = ensure_columns(db_container["df"])
 
+# 熱中症警戒アラートの自動取得関数（環境省WBGT情報）
+def check_heat_alert(pref_name):
+    try:
+        # 環境省・気象庁アラート配信サイトからデータ取得を試行
+        url = "https://www.wbgt.env.go.jp/sp/data/xml/alert_info.xml"
+        res = requests.get(url, timeout=3)
+        if res.status_code == 200 and pref_name in res.text:
+            return True
+    except Exception:
+        pass
+    return False
+
 # 熱中症判定のルール（5段階）
 def judge_wbgt(val):
     if val >= 33: return "🟣 危険（熱中症警戒アラート）", "#800080"
@@ -88,7 +111,37 @@ def save_uploaded_image(file_obj, prefix, dt_str, loc_str):
 def show_image_modal(image_path, title="写真"):
     st.image(image_path, caption=title, use_container_width=True)
 
+# ------------------------------------------
+# サイドバー設定
+# ------------------------------------------
+st.sidebar.header("⚙️ システム設定")
+selected_pref = st.sidebar.selectbox("学校の所在地域", PREFECTURES, index=PREFECTURES.index("兵庫県") if "兵庫県" in PREFECTURES else 0)
+
+# 自動取得判定
+auto_alert = check_heat_alert(selected_pref)
+
+# 手動強制表示スイッチ（テスト・緊急用）
+manual_alert = st.sidebar.checkbox("熱中症警戒アラートをテスト表示（強制表示）", value=False)
+
+is_alert_active = auto_alert or manual_alert
+
+# ------------------------------------------
+# メイン画面ヘッダー ＆ アラート表示
+# ------------------------------------------
 st.title("🌡️ 校内WBGT・環境観測システム")
+
+# 熱中症警戒アラートが発令されている場合、最上部に表示
+if is_alert_active:
+    st.markdown(
+        f"""
+        <div style="background-color: #FF2E2E; color: white; padding: 14px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 1.15rem; margin-bottom: 15px; box-shadow: 0px 4px 10px rgba(255, 0, 0, 0.3); border: 2px solid #B30000;">
+            ⚠️ 【熱中症警戒アラート発表中】 ({selected_pref})<br>
+            <span style="font-size: 0.95rem; font-weight: normal;">本日・明日は暑さ指数（WBGT）が著しく高くなる見込みです。屋外活動は原則中止・厳重警戒してください。</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 st.caption("WBGT数値データ ＋ 天候・地面表面温度・写真保存（機器・空・表面温度）")
 
 tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "📊 全履歴（CSV）"])
@@ -412,19 +465,15 @@ with tab3:
     df = db_container["df"]
     
     if not df.empty:
-        # データ消去用エリア
         with st.expander("🗑️ 不要なデータを消去・削除する"):
             st.warning("※選択した行のデータが完全に削除されます。")
             
-            # 識別しやすい「インデックス + 日時 + 地点」の選択肢リストを作成
             delete_options = [f"ID {i}: [{row['日時']}] {row['地点']} (WBGT:{row['WBGT']} / 天候:{row['天候']})" for i, row in df.iterrows()]
             selected_to_delete = st.selectbox("削除するデータを選択してください", delete_options, index=len(delete_options)-1)
             
             if st.button("選択したデータを削除する", type="secondary"):
-                # 選択されたID（インデックス）を抽出
                 target_idx = int(selected_to_delete.split(":")[0].replace("ID ", ""))
                 
-                # 指定行を削除してインデックスを詰める
                 db_container["df"] = db_container["df"].drop(index=target_idx).reset_index(drop=True)
                 db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
                 
