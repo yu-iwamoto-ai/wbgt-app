@@ -33,29 +33,24 @@ LOCATION_MAPPING = {
     "正門付近": "エントランス"
 }
 
-# 相互参照（天候紐付け）を行う特定2地点のリスト
 REFLECT_WEATHER_LOCATIONS = ["東門付近", "エントランス", "正門付近"]
-
 WEATHERS = ["晴れ ☀️", "曇り ☁️", "雨 🌧️", "室内 🏢"]
 WINDS = ["なし 🍃", "弱風 🌬️", "強風 💨"]
 
 REQUIRED_COLUMNS = ["日時", "地点", "天候", "風", "WBGT", "気温", "湿度", "表面温度", "判定", "画像", "空画像", "表面画像"]
 
-# データフレームのカラム補正関数
 def ensure_columns(df):
     for col in REQUIRED_COLUMNS:
         if col not in df.columns:
             df[col] = "-"
     return df[REQUIRED_COLUMNS]
 
-# メモリ空間の保持
 @st.cache_resource(ttl=86400)
 def get_secure_database():
     return {"df": pd.DataFrame(columns=REQUIRED_COLUMNS)}
 
 db_container = get_secure_database()
 
-# CSVファイルバックアップ準備
 DB_FILE = "wbgt_data.csv"
 if not os.path.exists(DB_FILE):
     df_init = pd.DataFrame(columns=REQUIRED_COLUMNS)
@@ -71,47 +66,40 @@ else:
 
 db_container["df"] = ensure_columns(db_container["df"])
 
-# 熱中症警戒アラートの自動取得関数（多重フォールバック取得版）
+# ------------------------------------------
+# アラートWebページ（sp/alert.php）直接解析処理
+# ------------------------------------------
 def fetch_heat_alert(pref_name):
+    # 「兵庫県」→「兵庫」のように都道府県接尾辞を除去した検索ワードも用意
     clean_pref = pref_name.replace("県", "").replace("府", "").replace("都", "")
     
-    # 環境省 / 気象庁などの取得候補URLリスト
-    urls = [
-        "https://www.wbgt.env.go.jp/data/xml/alert_info.xml",
-        "https://www.wbgt.env.go.jp/sp/data/xml/alert_info.xml",
-        "https://www.wbgt.env.go.jp/prev157/data/alert_info.xml",
-        "https://www.wbgt.env.go.jp/alert_list.php"
-    ]
-    
+    target_url = "https://www.wbgt.env.go.jp/sp/alert.php"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    status_msg = "取得失敗"
     is_alert = False
+    status_msg = "取得失敗"
     
-    for url in urls:
-        try:
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                # 応答テキストのエンコーディング自動設定
-                res.encoding = res.apparent_encoding if res.apparent_encoding else 'utf-8'
-                content = res.text
-                
-                if clean_pref in content or pref_name in content:
-                    is_alert = True
-                    status_msg = f"【発令中】データ内に「{pref_name}」の発表を確認しました"
-                else:
-                    status_msg = f"【正常通信】データ内に「{pref_name}」の該当なし"
-                break
-            else:
-                status_msg = f"HTTPエラー ({res.status_code}): {url.split('/')[-1]}"
-        except Exception as e:
-            status_msg = f"通信例外: {e}"
+    try:
+        res = requests.get(target_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            res.encoding = 'utf-8'
+            html = res.text
             
+            # ページ内に指定都道府県名が含まれているか判定
+            if clean_pref in html or pref_name in html:
+                is_alert = True
+                status_msg = f"【発令中】「{pref_name}」のアラート発表を検出しました"
+            else:
+                status_msg = f"【正常通信】現在「{pref_name}」にアラート発令なし"
+        else:
+            status_msg = f"HTTPエラー: {res.status_code}"
+    except Exception as e:
+        status_msg = f"通信例外: {e}"
+        
     return is_alert, status_msg
 
-# 熱中症判定のルール（5段階）
 def judge_wbgt(val):
     if val >= 33: return "🟣 危険（熱中症警戒アラート）", "#800080"
     elif val >= 31: return "🔴 危険", "#FF4B4B"
@@ -119,7 +107,6 @@ def judge_wbgt(val):
     elif val >= 25: return "💛 警戒", "#F1C40F"
     else: return "🔹 注意", "#3498DB"
 
-# 画像保存用ヘルパー関数
 def save_uploaded_image(file_obj, prefix, dt_str, loc_str):
     if file_obj is None:
         return "-"
@@ -134,7 +121,6 @@ def save_uploaded_image(file_obj, prefix, dt_str, loc_str):
             f.write(file_obj.getbuffer())
     return filename
 
-# 画像ポップアップ（モーダル）表示用関数
 @st.dialog("🖼️ 写真の表示")
 def show_image_modal(image_path, title="写真"):
     st.image(image_path, caption=title, use_container_width=True)
@@ -145,19 +131,15 @@ def show_image_modal(image_path, title="写真"):
 st.sidebar.header("⚙️ システム設定")
 selected_pref = st.sidebar.selectbox("学校の所在地域", PREFECTURES, index=PREFECTURES.index("兵庫県") if "兵庫県" in PREFECTURES else 0)
 
-# 最新データを直接通信して取得
 auto_alert, alert_debug_msg = fetch_heat_alert(selected_pref)
 
-# サイドバーに自動取得の診断結果を表示
 with st.sidebar.expander("📡 アラート自動取得の接続状態", expanded=True):
     st.write(f"判定: **{'⚠️ 発令中' if auto_alert else '🟢 発令なし/平常'}**")
     st.caption(f"通信状況: {alert_debug_msg}")
     if st.button("最新データに再更新"):
         st.rerun()
 
-# 手動強制表示スイッチ（テスト・緊急用）
 manual_alert = st.sidebar.checkbox("熱中症警戒アラートをテスト表示（強制表示）", value=False)
-
 is_alert_active = auto_alert or manual_alert
 
 # ------------------------------------------
@@ -165,7 +147,6 @@ is_alert_active = auto_alert or manual_alert
 # ------------------------------------------
 st.title("🌡️ 校内WBGT・環境観測システム")
 
-# 熱中症警戒アラートが発令されている場合、最上部に表示
 if is_alert_active:
     st.markdown(
         f"""
@@ -186,10 +167,8 @@ tab1, tab2, tab3 = st.tabs(["📸 新規登録", "📋 地点別最新一覧", "
 # ==========================================
 with tab1:
     st.header("新規データの登録")
-    
     sub_tab_a, sub_tab_b = st.tabs(["🌡️ WBGT・測定値登録", "🌤️ 天候・表面温度・写真登録"])
     
-    # --- サブタブA: WBGT数値の入力 ---
     with sub_tab_a:
         st.subheader("1. WBGT・気象数値の入力")
         loc_a = st.selectbox("観測地点を選択", LOCATIONS_WBGT, key="loc_a")
@@ -244,7 +223,6 @@ with tab1:
             db_container["df"].to_csv(DB_FILE, index=False, encoding="utf-8-sig")
             st.rerun()
 
-    # --- サブタブB: 天候・表面温度の入力 ---
     with sub_tab_b:
         st.subheader("2. 天候・地面の表面温度データの入力")
         loc_b = st.selectbox("対象を選択", LOCATIONS_ENV, key="loc_b")
@@ -312,7 +290,6 @@ with tab2:
     view_tab_a, view_tab_b = st.tabs(["🌡️ WBGT最新状況", "🌤️ 天候・表面温度最新状況"])
     df = db_container["df"]
 
-    # --- サブタブ1: WBGT最新一覧 ---
     with view_tab_a:
         common_df = df[df["地点"] == "校内全体（全地点共通）"]
         common_sky_img = None
@@ -427,7 +404,6 @@ with tab2:
                         unsafe_allow_html=True
                     )
 
-    # --- サブタブ2: 天候・表面温度最新一覧 ---
     with view_tab_b:
         st.subheader("校内天候・地面表面温度の最新情報")
         for idx, loc in enumerate(LOCATIONS_ENV):
@@ -458,7 +434,7 @@ with tab2:
                             </div>
                             <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; font-size: 0.85rem; color: #444;">
                                 <span><b>天候:</b> {weather_val}</span>
-                                <span><b>风:</b> {wind_val}</span>
+                                <span><b>風:</b> {wind_val}</span>
                                 <span><b>地面表面温度:</b> <span style="color:#D35400; font-weight:bold;">{surf_disp}</span></span>
                             </div>
                         </div>
