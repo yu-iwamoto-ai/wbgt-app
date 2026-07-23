@@ -21,9 +21,8 @@ selected_pref = st.sidebar.selectbox(
     index=0
 )
 
-# --- アラート自動取得機能（bs4不使用・HTML直接判定） ---
+# --- アラート自動取得機能 ---
 def check_heat_alert(pref_name):
-    """環境省のアラートページから直接判定"""
     clean_pref = pref_name.replace("県", "").replace("府", "").replace("都", "").replace("道", "")
     url = "https://www.wbgt.env.go.jp/sp/alert.php"
     headers = {
@@ -58,6 +57,9 @@ st.title("☀️ 環境観測システム")
 if alert_active:
     st.error(f"🚨 **【熱中症警戒アラート発表中】（{selected_pref}）**\n\n熱中症リスクが極めて高くなる見込みです。屋外活動は原則中止・延期または適切な対策を実施してください。")
 
+# 現在時刻の初期表示用
+now_str = datetime.datetime.now().strftime("%H:%M")
+
 # --- タブ構造 ---
 tab1, tab2, tab3 = st.tabs(["🌡️ WBGT・測定登録", "📷 空の写真登録", "📊 観測データ一覧"])
 
@@ -71,14 +73,14 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             record_date = st.date_input("測定日付", datetime.date.today())
-            record_time = st.time_input("測定時刻", datetime.datetime.now().time())
+            # ★ プルダウンをやめてテキスト直接入力に変更
+            record_time_str = st.text_input("測定時刻 (入力例: 14:30)", value=now_str)
             location = st.text_input("測定地点", value="グラウンド")
             wbgt = st.number_input("WBGT (℃)", min_value=0.0, max_value=50.0, value=28.0, step=0.1)
         
         with col2:
             temp = st.number_input("気温 (℃)", min_value=-10.0, max_value=60.0, value=31.0, step=0.1)
             humidity = st.number_input("湿度 (%)", min_value=0, max_value=100, value=65)
-            # 風の状況をこちらに配置
             wind_status = st.selectbox("風の状況", ["なし 🍃", "弱風 🌬️", "強風 💨"])
             memo = st.text_input("備考・メモ", value="")
             
@@ -87,7 +89,7 @@ with tab1:
         if submit_wbgt:
             st.session_state.wbgt_records.append({
                 "日付": record_date.strftime("%Y-%m-%d"),
-                "時刻": record_time.strftime("%H:%M"),
+                "時刻": record_time_str.strip(),
                 "地点": location,
                 "WBGT(℃)": wbgt,
                 "気温(℃)": temp,
@@ -98,7 +100,7 @@ with tab1:
             st.success("WBGTデータを登録しました！")
 
 # ---------------------------------------------------------
-# タブ 2: 空の写真登録（地点不要・日付と時刻のみ）
+# タブ 2: 空の写真登録（テキスト時刻入力）
 # ---------------------------------------------------------
 with tab2:
     st.subheader("空の写真登録")
@@ -107,7 +109,8 @@ with tab2:
         col1, col2 = st.columns(2)
         with col1:
             photo_date = st.date_input("撮影日付", datetime.date.today())
-            photo_time = st.time_input("撮影時刻", datetime.datetime.now().time())
+            # ★ プルダウンをやめてテキスト直接入力に変更
+            photo_time_str = st.text_input("撮影時刻 (入力例: 14:30)", value=now_str)
         
         uploaded_file = st.file_uploader("空の画像をアップロード", type=["jpg", "jpeg", "png"])
         photo_memo = st.text_input("写真に関するメモ（任意）", value="")
@@ -118,11 +121,11 @@ with tab2:
             if uploaded_file is not None:
                 st.session_state.sky_photo_records.append({
                     "日付": photo_date.strftime("%Y-%m-%d"),
-                    "時刻": photo_time.strftime("%H:%M"),
+                    "時刻": photo_time_str.strip(),
                     "画像データ": uploaded_file,
                     "メモ": photo_memo
                 })
-                st.success("空の写真を登録しました！")
+                st.success(f"【保存完了】 {photo_date.strftime('%Y-%m-%d')} {photo_time_str.strip()} の空写真を保存しました！")
             else:
                 st.warning("画像ファイルを選択してください。")
 
@@ -155,11 +158,13 @@ with tab3:
             st.dataframe(pd.DataFrame(photo_table_data), use_container_width=True)
             
             st.divider()
-            st.markdown("##### 🖼️ ギャラリー表示")
             
+            st.markdown("##### 🖼️ ギャラリー表示")
             cols = st.columns(3)
             for idx, item in enumerate(st.session_state.sky_photo_records):
                 with cols[idx % 3]:
-                    st.image(item["画像データ"], caption=f"{item['日付']} {item['時刻']} - {item['メモ']}", use_container_width=True)
+                    st.markdown(f"**🕒 {item['日付']} {item['時刻']}**")
+                    caption_text = f"メモ: {item['メモ']}" if item['メモ'] else "メモなし"
+                    st.image(item["画像データ"], caption=caption_text, use_container_width=True)
         else:
             st.info("登録された空の写真はまだありません。")
