@@ -399,15 +399,9 @@ with tab2:
                     
                     has_main = pd.notna(img_file) and img_file != "-" and os.path.exists(os.path.join(IMAGE_DIR, str(img_file)))
                     
-                    btn_cols = st.columns([1.2, 1, 2])
-                    if common_sky_img:
-                        with btn_cols[0]:
-                            if st.button(f"🌤️ 空写真 ({common_sky_dt})", key=f"btn_modal_sky_{idx}"):
-                                show_image_modal(common_sky_img, f"空の様子 ({common_sky_dt})")
                     if has_main:
-                        with btn_cols[1]:
-                            if st.button("📷 機器写真を見る", key=f"btn_modal_main_{idx}"):
-                                show_image_modal(os.path.join(IMAGE_DIR, str(img_file)), f"{loc} - 測定機器")
+                        if st.button("📷 機器写真を見る", key=f"btn_modal_main_{idx}"):
+                            show_image_modal(os.path.join(IMAGE_DIR, str(img_file)), f"{loc} - 測定機器")
 
                     st.write("")
                 else:
